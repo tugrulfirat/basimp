@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>basimp — Editor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=EB+Garamond:wght@400;700&family=Libre+Bodoni:wght@400;700&family=Crimson+Pro:wght@400;700&family=Jost:wght@400;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0F0F1A; overflow: hidden; font-family: 'Inter', sans-serif; }
@@ -48,6 +49,16 @@
 
     const REDACT_COLORS = ["#000000", "#1A1A2E", "#FF4757", "#FFFFFF", "#FFD700"];
     const toolColors = { select: "#6C63FF", redact: "#FF4757", blur: "#6C63FF", pixelate: "#F39C12", crop: "#2ECC71", arrow: "#FF4757", text: "#00BCD4", draw: "#FF9FF3", resize: "#6C63FF" };
+    
+    // Vignelli's 6 essential fonts (Free equivalents)
+    const VIGNELLI_FONTS = [
+      { name: "Garamond", family: "'EB Garamond', serif" },
+      { name: "Bodoni", family: "'Libre Bodoni', serif" },
+      { name: "Century", family: "'Crimson Pro', serif" },
+      { name: "Futura", family: "'Jost', sans-serif" },
+      { name: "Times", family: "'Times New Roman', serif" },
+      { name: "Helvetica", family: "'Inter', sans-serif" }
+    ];
 
     // ── Social media canvas presets ───────────────────────────────────────────
     const SOCIALS = [
@@ -189,6 +200,7 @@
       const [statusMsg, setStatusMsg] = useState("Paste an image or drop a file to start");
       const [showDropZone, setShowDropZone] = useState(true);
       const [fontSize, setFontSize] = useState(24);
+      const [fontFamily, setFontFamily] = useState(VIGNELLI_FONTS[5].family); // Default to Helvetica (Inter)
       
       // Sync sliders when layer is selected
       useEffect(() => {
@@ -197,6 +209,7 @@
           if (l) {
             if (l.radius) setBrushSize(l.radius);
             if (l.fontSize) setFontSize(l.fontSize);
+            if (l.fontFamily) setFontFamily(l.fontFamily);
             if (l.color) {
               if (l.type === "redact") setRedactColor(l.color);
               else setDrawColor(l.color);
@@ -301,7 +314,7 @@
         } else if (layer.type === "arrow") {
           drawArrowOnCanvas(ctx, layer.x1, layer.y1, layer.x2, layer.y2, layer.color, layer.size, layer.style);
         } else if (layer.type === "text") {
-          ctx.font = `bold ${layer.fontSize}px Inter, Helvetica Neue, sans-serif`;
+          ctx.font = `bold ${layer.fontSize}px ${layer.fontFamily || VIGNELLI_FONTS[5].family}`;
           ctx.fillStyle = layer.color;
           ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
           ctx.fillText(layer.text, layer.x, layer.y);
@@ -913,7 +926,8 @@
           y: textPos.y,
           text: textInput,
           color: drawColor,
-          fontSize: fontSize
+          fontSize: fontSize,
+          fontFamily: fontFamily
         };
         setLayers(prev => [...prev, newLayer]);
         setTextInput(""); setShowTextBox(false); setTextPos(null);
@@ -1368,7 +1382,11 @@
                   autoFocus: true, value: textInput, onChange: e => setTextInput(e.target.value),
                   onKeyDown: e => { if (e.key === "Enter") commitText(); if (e.key === "Escape") setShowTextBox(false); },
                   placeholder: "Type → Enter...",
-                  style: { background: "rgba(0,0,0,0.9)", color: drawColor, border: `1.5px solid ${drawColor}`, borderRadius: 4, padding: "4px 10px", fontSize: Math.max(12, fontSize * (canvasRef.current ? canvasRef.current.getBoundingClientRect().width / canvasRef.current.width : 1)), fontWeight: 700, outline: "none", minWidth: 160 }
+                  style: { 
+                    background: "rgba(0,0,0,0.9)", color: drawColor, border: `1.5px solid ${drawColor}`, borderRadius: 4, 
+                    padding: "4px 10px", fontSize: Math.max(12, fontSize * (canvasRef.current ? canvasRef.current.getBoundingClientRect().width / canvasRef.current.width : 1)), 
+                    fontWeight: 700, outline: "none", minWidth: 160, fontFamily: fontFamily
+                  }
                 })
               )
             )
@@ -1452,13 +1470,27 @@
               }
 
               if (type === "text") {
-                elements.push(React.createElement("div", { key: "font-size" },
-                  React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
-                  React.createElement("input", { 
-                    type: "range", min: 12, max: 96, value: fontSize, 
-                    onChange: e => { const v = Number(e.target.value); setFontSize(v); updateSelectedLayer({ fontSize: v }); }, 
-                    style: { width: "100%", accentColor: BRAND.accent } 
-                  })
+                elements.push(React.createElement("div", { key: "font-settings", style: { display: "flex", flexDirection: "column", gap: 12 } },
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
+                    React.createElement("input", { 
+                      type: "range", min: 12, max: 96, value: fontSize, 
+                      onChange: e => { const v = Number(e.target.value); setFontSize(v); updateSelectedLayer({ fontSize: v }); }, 
+                      style: { width: "100%", accentColor: BRAND.accent } 
+                    })
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Typeface"),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
+                      VIGNELLI_FONTS.map(f => React.createElement("div", {
+                        key: f.name,
+                        onClick: () => { setFontFamily(f.family); updateSelectedLayer({ fontFamily: f.family }); },
+                        style: {
+                          padding: "8px 6px", borderRadius: 6, background: fontFamily === f.family ? BRAND.accent + "33" : BRAND.surfaceHover, border: `1px solid ${fontFamily === f.family ? BRAND.accent : BRAND.border}`, color: fontFamily === f.family ? BRAND.accent : BRAND.text, cursor: "pointer", fontSize: 12, textAlign: "center", fontFamily: f.family, transition: "all 0.1s"
+                        }
+                      }, f.name))
+                    )
+                  )
                 ));
               }
 
