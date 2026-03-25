@@ -28,7 +28,7 @@
     };
 
     const TOOLS = [
-      { id: "select",   icon: "⬚",  label: "Select",    shortcut: "V" },
+      { id: "resize",   icon: "⤡",  label: "Resize",    shortcut: "S" },
       { id: "redact",   icon: "▬",  label: "Redact",    shortcut: "R" },
       { id: "blur",     icon: "◈",  label: "Blur",      shortcut: "B" },
       { id: "pixelate", icon: "⊞",  label: "Pixelate",  shortcut: "P" },
@@ -39,7 +39,7 @@
     ];
 
     const REDACT_COLORS = ["#000000", "#1A1A2E", "#FF4757", "#FFFFFF", "#FFD700"];
-    const toolColors = { redact: "#FF4757", blur: "#6C63FF", pixelate: "#F39C12", crop: "#2ECC71", arrow: "#FF4757", text: "#00BCD4", draw: "#FF9FF3", select: "#6C63FF" };
+    const toolColors = { redact: "#FF4757", blur: "#6C63FF", pixelate: "#F39C12", crop: "#2ECC71", arrow: "#FF4757", text: "#00BCD4", draw: "#FF9FF3", resize: "#6C63FF" };
 
     // ── Social media canvas presets ───────────────────────────────────────────
     const SOCIALS = [
@@ -147,6 +147,9 @@
       const fileInputRef = useRef(null);
       const [image, setImage] = useState(null);
       const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
+      const [zoom, setZoom] = useState("fit");
+      const [resizeDims, setResizeDims] = useState({ w: 0, h: 0 });
+      const [aspectLock, setAspectLock] = useState(true);
       const [tool, setTool] = useState("arrow");
       const [arrowStyle, setArrowStyle] = useState("classic");
       const [isDrawing, setIsDrawing] = useState(false);
@@ -210,6 +213,7 @@
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           setImageDimensions({ w: img.width, h: img.height });
+          setResizeDims({ w: img.width, h: img.height });
         };
         img.src = last;
         status("Undone ↩");
@@ -218,17 +222,13 @@
 const loadImage = useCallback((src) => {
         const img = new Image();
         img.onload = () => {
-          const maxW = window.innerWidth - 300;
-          const maxH = window.innerHeight - 130;
           let w = img.width, h = img.height;
-          if (w > maxW) { h = h * maxW / w; w = maxW; }
-          if (h > maxH) { w = w * maxH / h; h = maxH; }
-          w = Math.round(w); h = Math.round(h);
-          // Canvas is always in the DOM (just hidden), so canvasRef is always valid
+          // Native resolution preservation
           const canvas = canvasRef.current;
           canvas.width = w; canvas.height = h;
           canvas.getContext("2d").drawImage(img, 0, 0, w, h);
           setImageDimensions({ w, h });
+          setResizeDims({ w, h });
           setImage(src);
           setShowDropZone(false);
           setHistory([]);
@@ -336,13 +336,34 @@ const loadImage = useCallback((src) => {
         ctx.lineCap = "round"; ctx.lineJoin = "round";
         
         if (style === "elegant") {
-          ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
-          ctx.lineWidth = Math.max(2, size*0.6);
-          const headLen = 16 + size*1.5;
-          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.shadowColor = "rgba(0,0,0,0.25)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+          ctx.lineWidth = Math.max(2, size*0.7);
+          const headLen = 22 + size * 4;
+          
+          // Calculate a control point for a subtle sweeping curve (offset by 15% perpendicular to line)
+          const cx = (x1 + x2)/2 - dy * 0.15;
+          const cy = (y1 + y2)/2 + dx * 0.15;
+          
+          // Stop drawing the main line so it doesn't poke through the inner curve of the swept arrowhead
+          // But use the angle of the end of the curve!
+          const headAngle = Math.atan2(y2 - cy, x2 - cx);
+          const shrinkX = x2 - Math.cos(headAngle) * headLen * 0.5;
+          const shrinkY = y2 - Math.sin(headAngle) * headLen * 0.5;
+
+          ctx.beginPath(); 
+          ctx.moveTo(x1, y1); 
+          ctx.quadraticCurveTo(cx, cy, shrinkX, shrinkY); 
+          ctx.stroke();
+          
+          // Draw distinctly sharp, sweeping head oriented with the curve
           ctx.beginPath(); ctx.moveTo(x2, y2);
-          ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/9), y2 - headLen * Math.sin(angle - Math.PI/9));
-          ctx.quadraticCurveTo(x2 - headLen*0.7 * Math.cos(angle), y2 - headLen*0.7 * Math.sin(angle), x2 - headLen * Math.cos(angle + Math.PI/9), y2 - headLen * Math.sin(angle + Math.PI/9));
+          ctx.lineTo(x2 - headLen * Math.cos(headAngle - Math.PI/11), y2 - headLen * Math.sin(headAngle - Math.PI/11));
+          ctx.quadraticCurveTo(
+            x2 - headLen * 0.6 * Math.cos(headAngle), 
+            y2 - headLen * 0.6 * Math.sin(headAngle), 
+            x2 - headLen * Math.cos(headAngle + Math.PI/11), 
+            y2 - headLen * Math.sin(headAngle + Math.PI/11)
+          );
           ctx.closePath(); ctx.fill();
         } else if (style === "bold") {
           ctx.lineWidth = size * 2.5 + 2;
@@ -614,8 +635,39 @@ const loadImage = useCallback((src) => {
         canvas.width = cw; canvas.height = ch;
         ctx.putImageData(imageData, 0, 0);
         setImageDimensions({ w: cw, h: ch });
+        setResizeDims({ w: cw, h: ch });
         setCrop(null);
         status("⊡ Cropped ✓");
+      };
+
+      const handleResizeChange = (field, val) => {
+        const num = parseInt(val) || 0;
+        if (field === "w") {
+          if (aspectLock && imageDimensions.w > 0) setResizeDims({ w: val, h: Math.round((num / imageDimensions.w) * imageDimensions.h) });
+          else setResizeDims(d => ({ ...d, w: val }));
+        } else {
+          if (aspectLock && imageDimensions.h > 0) setResizeDims({ h: val, w: Math.round((num / imageDimensions.h) * imageDimensions.w) });
+          else setResizeDims(d => ({ ...d, h: val }));
+        }
+      };
+
+      const applyResize = () => {
+        const w = parseInt(resizeDims.w);
+        const h = parseInt(resizeDims.h);
+        if (isNaN(w) || isNaN(h) || w < 2 || h < 2) { status("Invalid resize dimensions"); return; }
+        saveHistory();
+        const mainCanvas = canvasRef.current;
+        const mainCtx = mainCanvas.getContext("2d");
+        const off = document.createElement("canvas");
+        off.width = w; off.height = h;
+        const offCtx = off.getContext("2d");
+        offCtx.drawImage(mainCanvas, 0, 0, w, h);
+        mainCanvas.width = w; mainCanvas.height = h;
+        mainCtx.clearRect(0, 0, w, h);
+        mainCtx.drawImage(off, 0, 0);
+        setImageDimensions({ w, h });
+        status(`⤡ Resized to ${w}×${h}px`);
+        selectTool("arrow"); // switch back cleanly
       };
 
       const cancelCrop = () => {
@@ -661,6 +713,7 @@ const loadImage = useCallback((src) => {
         ctx.fillText(`${preset.label} — ${preset.w}×${preset.h}px`, displayW/2, displayH/2);
         ctx.textAlign = "left";
         setImageDimensions({ w: displayW, h: displayH });
+        setResizeDims({ w: displayW, h: displayH });
         setImage("social");
         setShowDropZone(false);
         setHistory([]);
@@ -749,6 +802,7 @@ const loadImage = useCallback((src) => {
             ),
 
             image && React.createElement(React.Fragment, null,
+              React.createElement("button", { onClick: () => setZoom(z => z === "fit" ? "100" : "fit"), style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}88`, background: "#12121F" } }, zoom === "fit" ? "🔍 100%" : "🔍 Fit"),
               React.createElement("button", { onClick: undo, disabled: history.length === 0, style: btnStyle(BRAND, history.length === 0), title: "Undo (Ctrl+Z)" }, "↩ Undo"),
               React.createElement("button", { onClick: copyToClipboard, style: btnStyle(BRAND) }, "📋 Copy"),
               React.createElement("button", { onClick: () => exportImage("png"), style: btnStyle(BRAND, false, true) }, "⬇ PNG"),
@@ -817,6 +871,27 @@ const loadImage = useCallback((src) => {
               )
             ),
             tool === "arrow" && React.createElement("div", { style: { width: 44, height: 1, background: BRAND.border, margin: "0 0 6px 0" } }),
+            
+            // Resize UI (only active if tool is resize)
+            tool === "resize" && React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "8px 6px", width: "100%", background: "#12121F", borderRadius: 8, border: `1px solid ${BRAND.border}` } },
+              React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: BRAND.text } }, "RESIZE IMAGE"),
+              React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, width: "100%" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
+                  React.createElement("span", { style: { fontSize: 9, color: BRAND.textMuted } }, "W"),
+                  React.createElement("input", { type: "number", value: resizeDims.w, onChange: e => handleResizeChange("w", e.target.value), style: { width: 44, background: BRAND.bg, border: `1px solid ${BRAND.border}`, color: "#fff", fontSize: 11, padding: "3px 4px", borderRadius: 4, textAlign: "center" } })
+                ),
+                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
+                  React.createElement("span", { style: { fontSize: 9, color: BRAND.textMuted } }, "H"),
+                  React.createElement("input", { type: "number", value: resizeDims.h, onChange: e => handleResizeChange("h", e.target.value), style: { width: 44, background: BRAND.bg, border: `1px solid ${BRAND.border}`, color: "#fff", fontSize: 11, padding: "3px 4px", borderRadius: 4, textAlign: "center" } })
+                )
+              ),
+              React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 9, color: BRAND.textMuted, width: "100%" } },
+                React.createElement("input", { type: "checkbox", checked: aspectLock, onChange: e => setAspectLock(e.target.checked) }),
+                "Lock Aspect"
+              ),
+              React.createElement("button", { onClick: applyResize, style: { width: "100%", padding: "5px 0", background: BRAND.accent, border: "none", color: "#fff", borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: "pointer", marginTop: 2 } }, "Apply")
+            ),
+            tool === "resize" && React.createElement("div", { style: { width: 44, height: 1, background: BRAND.border, margin: "0 0 6px 0" } }),
 
             // Color presets
             React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, paddingBottom: 6 } },
@@ -862,7 +937,13 @@ const loadImage = useCallback((src) => {
             React.createElement("div", { style: { display: showDropZone ? "none" : "inline-block", position: "relative", padding: 24 } },
               React.createElement("canvas", {
                 ref: canvasRef,
-                style: { display: "block", cursor: getCursor(), boxShadow: "0 8px 40px rgba(0,0,0,0.6)", borderRadius: 4, maxWidth: "100%", touchAction: "none" },
+                style: { 
+                  display: "block", cursor: getCursor(), boxShadow: "0 8px 40px rgba(0,0,0,0.6)", 
+                  borderRadius: 4, touchAction: "none",
+                  maxWidth: zoom === "fit" ? "100%" : "none",
+                  maxHeight: zoom === "fit" ? "calc(100vh - 120px)" : "none",
+                  objectFit: "contain"
+                },
                 onPointerDown: handleMouseDown, onPointerMove: handleMouseMove,
                 onPointerUp: handleMouseUp
               }),
