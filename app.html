@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>basimp — Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F0F1A; overflow: hidden; }
+    #root { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script type="text/babel" data-presets="react">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    const BRAND = {
+      bg: "#0F0F1A", surface: "#1A1A2E", surfaceHover: "#22223A",
+      border: "#2E2E4A", accent: "#6C63FF", accentHover: "#7C75FF",
+      accentLight: "#6C63FF22", text: "#E8E8F0", textMuted: "#8888AA",
+      danger: "#FF4757", success: "#2ECC71",
+    };
+
+    const TOOLS = [
+      { id: "select",   icon: "⬚",  label: "Select",    shortcut: "V" },
+      { id: "redact",   icon: "▬",  label: "Redact",    shortcut: "R" },
+      { id: "blur",     icon: "◈",  label: "Blur",      shortcut: "B" },
+      { id: "pixelate", icon: "⊞",  label: "Pixelate",  shortcut: "P" },
+      { id: "crop",     icon: "⊡",  label: "Crop",      shortcut: "C" },
+      { id: "arrow",    icon: "↗",  label: "Arrow",     shortcut: "A" },
+      { id: "text",     icon: "T",  label: "Text",      shortcut: "T" },
+      { id: "draw",     icon: "✏",  label: "Draw",      shortcut: "D" },
+    ];
+
+    const REDACT_COLORS = ["#000000", "#1A1A2E", "#FF4757", "#FFFFFF", "#FFD700"];
+    const toolColors = { redact: "#FF4757", blur: "#6C63FF", pixelate: "#F39C12", crop: "#2ECC71", arrow: "#FF4757", text: "#00BCD4", draw: "#FF9FF3", select: "#6C63FF" };
+
+    // ── Social media canvas presets ───────────────────────────────────────────
+    const SOCIALS = [
+      {
+        id: "instagram", label: "Instagram", color: "#E1306C",
+        icon: React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" })
+        ),
+        sizes: [
+          { label: "Post (Square)", w: 1080, h: 1080 },
+          { label: "Portrait Post", w: 1080, h: 1350 },
+          { label: "Story / Reel", w: 1080, h: 1920 },
+          { label: "Landscape Post", w: 1080, h: 566 },
+        ]
+      },
+      {
+        id: "youtube", label: "YouTube", color: "#FF0000",
+        icon: React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z" })
+        ),
+        sizes: [
+          { label: "Thumbnail", w: 1280, h: 720 },
+          { label: "Channel Banner", w: 2560, h: 1440 },
+          { label: "Shorts", w: 1080, h: 1920 },
+          { label: "Community Post", w: 1080, h: 1080 },
+        ]
+      },
+      {
+        id: "linkedin", label: "LinkedIn", color: "#0A66C2",
+        icon: React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" })
+        ),
+        sizes: [
+          { label: "Post (Square)", w: 1080, h: 1080 },
+          { label: "Post (Landscape)", w: 1200, h: 627 },
+          { label: "Story", w: 1080, h: 1920 },
+          { label: "Banner", w: 1584, h: 396 },
+        ]
+      },
+      {
+        id: "x", label: "X / Twitter", color: "#000000",
+        icon: React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.741l7.73-8.835L1.254 2.25H8.08l4.713 5.865zm-1.161 17.52h1.833L7.084 4.126H5.117z" })
+        ),
+        sizes: [
+          { label: "Post (Square)", w: 1080, h: 1080 },
+          { label: "Post (Landscape)", w: 1600, h: 900 },
+          { label: "Header", w: 1500, h: 500 },
+          { label: "Card", w: 800, h: 418 },
+        ]
+      },
+      {
+        id: "tiktok", label: "TikTok", color: "#010101",
+        icon: React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" })
+        ),
+        sizes: [
+          { label: "Video / Story", w: 1080, h: 1920 },
+          { label: "Square Post", w: 1080, h: 1080 },
+          { label: "Landscape", w: 1920, h: 1080 },
+          { label: "Profile Photo", w: 200, h: 200 },
+        ]
+      },
+      {
+        id: "pinterest", label: "Pinterest", color: "#E60023",
+        icon: React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M12 0C5.373 0 0 5.372 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z" })
+        ),
+        sizes: [
+          { label: "Standard Pin", w: 1000, h: 1500 },
+          { label: "Square Pin", w: 1000, h: 1000 },
+          { label: "Long Pin", w: 1000, h: 2100 },
+          { label: "Story Pin", w: 1080, h: 1920 },
+        ]
+      },
+      {
+        id: "bluesky", label: "Bluesky", color: "#0085FF",
+        icon: React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor" },
+          React.createElement("path", { d: "M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" })
+        ),
+        sizes: [
+          { label: "Post (Square)", w: 1080, h: 1080 },
+          { label: "Post (Landscape)", w: 1200, h: 675 },
+          { label: "Banner", w: 3000, h: 1000 },
+          { label: "Avatar", w: 400, h: 400 },
+        ]
+      },
+    ];
+
+    function btnStyle(BRAND, disabled = false, primary = false) {
+      return {
+        padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600,
+        cursor: disabled ? "not-allowed" : "pointer",
+        border: `1px solid ${primary ? BRAND.accent : BRAND.border}`,
+        background: primary ? BRAND.accent : "transparent",
+        color: disabled ? BRAND.textMuted : primary ? "#fff" : BRAND.text,
+        opacity: disabled ? 0.4 : 1, transition: "all 0.15s",
+        display: "flex", alignItems: "center", gap: 4,
+      };
+    }
+
+    function BasimpEditor() {
+      const canvasRef = useRef(null);
+      const overlayRef = useRef(null);
+      const fileInputRef = useRef(null);
+      const [image, setImage] = useState(null);
+      const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
+      const [tool, setTool] = useState("redact");
+      const [isDrawing, setIsDrawing] = useState(false);
+      const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+      const [history, setHistory] = useState([]);
+      const [redactColor, setRedactColor] = useState("#000000");
+      const [brushSize, setBrushSize] = useState(20);
+      const [drawColor, setDrawColor] = useState("#FF4757");
+      const [textInput, setTextInput] = useState("");
+      const [textPos, setTextPos] = useState(null);
+      const [showTextBox, setShowTextBox] = useState(false);
+      const [statusMsg, setStatusMsg] = useState("Paste an image or drop a file to start");
+      const [showDropZone, setShowDropZone] = useState(true);
+      const [fontSize, setFontSize] = useState(24);
+      const [arrowStart, setArrowStart] = useState(null);
+      const [cropSelection, setCropSelection] = useState(null); // { x, y, w, h } in canvas coords
+      const [socialOpen, setSocialOpen] = useState(false);       // social platform picker open
+      const [activeSocial, setActiveSocial] = useState(null);    // currently expanded platform
+      const socialRef = useRef(null);
+      const lastDrawPos = useRef(null);
+
+      // Curated presets that look great on any screen (light & dark)
+      const COLOR_PRESETS = [
+        "#FF4757", // red
+        "#FF6B35", // orange
+        "#FFD700", // yellow
+        "#2ECC71", // green
+        "#00BCD4", // cyan
+        "#6C63FF", // purple (brand)
+        "#FF9FF3", // pink
+        "#FFFFFF", // white
+        "#000000", // black
+      ];
+
+      const status = (msg, duration = 2500) => {
+        setStatusMsg(msg);
+        if (duration) setTimeout(() => setStatusMsg(""), duration);
+      };
+
+      const saveHistory = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        setHistory(h => [...h.slice(-19), canvas.toDataURL()]);
+      }, []);
+
+      const undo = useCallback(() => {
+        if (history.length === 0) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        const last = history[history.length - 1];
+        setHistory(h => h.slice(0, -1));
+        const img = new Image();
+        img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0); };
+        img.src = last;
+        status("Undone ↩");
+      }, [history]);
+
+const loadImage = useCallback((src) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = window.innerWidth - 300;
+          const maxH = window.innerHeight - 130;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = h * maxW / w; w = maxW; }
+          if (h > maxH) { w = w * maxH / h; h = maxH; }
+          w = Math.round(w); h = Math.round(h);
+          // Canvas is always in the DOM (just hidden), so canvasRef is always valid
+          const canvas = canvasRef.current;
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          setImageDimensions({ w, h });
+          setImage(src);
+          setShowDropZone(false);
+          setHistory([]);
+          status(`✓ Loaded ${img.width}×${img.height}px`, 3000);
+        };
+        img.src = src;
+      }, []);
+
+      useEffect(() => {
+        const handlePaste = (e) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+          for (const item of items) {
+            if (item.type.startsWith("image/")) {
+              const blob = item.getAsFile();
+              const reader = new FileReader();
+              reader.onload = (ev) => loadImage(ev.target.result);
+              reader.readAsDataURL(blob);
+              break;
+            }
+          }
+        };
+        window.addEventListener("paste", handlePaste);
+        return () => window.removeEventListener("paste", handlePaste);
+      }, [loadImage]);
+
+      useEffect(() => {
+        const handleKey = (e) => {
+          if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+          if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); return; }
+          const t = TOOLS.find(t => t.shortcut === e.key.toUpperCase());
+          if (t) setTool(t.id);
+        };
+        window.addEventListener("keydown", handleKey);
+        return () => window.removeEventListener("keydown", handleKey);
+      }, [undo]);
+
+      const handleDrop = (e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (file && file.type.startsWith("image/")) {
+          const reader = new FileReader();
+          reader.onload = (ev) => loadImage(ev.target.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handleFileInput = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => loadImage(ev.target.result);
+        reader.readAsDataURL(file);
+      };
+
+      const getPos = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+      };
+
+      const applyBlur = (ctx, x, y, w, h, radius = 10) => {
+        for (let i = 0; i < 3; i++) {
+          ctx.save();
+          ctx.filter = `blur(${radius}px)`;
+          const d = ctx.getImageData(x, y, w, h);
+          const o = document.createElement("canvas");
+          o.width = w; o.height = h;
+          o.getContext("2d").putImageData(d, 0, 0);
+          ctx.drawImage(o, x, y);
+          ctx.restore();
+        }
+      };
+
+      const applyPixelate = (ctx, x, y, w, h, blockSize = 12) => {
+        const imageData = ctx.getImageData(x, y, w, h);
+        const d = imageData.data;
+        for (let py = 0; py < h; py += blockSize) {
+          for (let px = 0; px < w; px += blockSize) {
+            const i = (py * w + px) * 4;
+            const r = d[i], g = d[i+1], b = d[i+2], a = d[i+3];
+            for (let fy = 0; fy < blockSize && py + fy < h; fy++) {
+              for (let fx = 0; fx < blockSize && px + fx < w; fx++) {
+                const j = ((py + fy) * w + (px + fx)) * 4;
+                d[j] = r; d[j+1] = g; d[j+2] = b; d[j+3] = a;
+              }
+            }
+          }
+        }
+        ctx.putImageData(imageData, x, y);
+      };
+
+      const drawArrowOnCanvas = (ctx, x1, y1, x2, y2, color = "#FF4757", size = 3) => {
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        const headLen = 18 + size * 3;
+        ctx.save();
+        ctx.strokeStyle = color; ctx.fillStyle = color;
+        ctx.lineWidth = size + 1; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/7), y2 - headLen * Math.sin(angle - Math.PI/7));
+        ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - headLen * Math.sin(angle + Math.PI/7));
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      };
+
+      const handleMouseDown = (e) => {
+        if (!image) return;
+        const pos = getPos(e);
+        if (tool === "text") { setTextPos(pos); setShowTextBox(true); return; }
+        if (tool === "arrow") { setArrowStart(pos); setIsDrawing(true); return; }
+        saveHistory();
+        setIsDrawing(true); setStartPos(pos); lastDrawPos.current = pos;
+        if (tool === "draw") {
+          const ctx = canvasRef.current.getContext("2d");
+          ctx.beginPath(); ctx.arc(pos.x, pos.y, brushSize/2, 0, Math.PI*2);
+          ctx.fillStyle = drawColor; ctx.fill();
+        }
+      };
+
+      const handleMouseMove = (e) => {
+        if (!isDrawing || !image) return;
+        const pos = getPos(e);
+        if (tool === "draw") {
+          const ctx = canvasRef.current.getContext("2d");
+          ctx.beginPath(); ctx.moveTo(lastDrawPos.current.x, lastDrawPos.current.y);
+          ctx.lineTo(pos.x, pos.y);
+          ctx.strokeStyle = drawColor; ctx.lineWidth = brushSize;
+          ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
+          lastDrawPos.current = pos;
+        }
+        // Selection overlay
+        if (["redact","blur","pixelate","crop"].includes(tool) && overlayRef.current) {
+          const canvas = canvasRef.current;
+          const rect = canvas.getBoundingClientRect();
+          const scaleX = rect.width / canvas.width;
+          const scaleY = rect.height / canvas.height;
+          const x = Math.min(startPos.x, getPos(e).x);
+          const y = Math.min(startPos.y, getPos(e).y);
+          const w = Math.abs(getPos(e).x - startPos.x);
+          const h = Math.abs(getPos(e).y - startPos.y);
+          const canvasRect = canvas.getBoundingClientRect();
+          const containerRect = canvas.parentElement.getBoundingClientRect();
+          overlayRef.current.style.left = (x * scaleX + canvasRect.left - containerRect.left) + "px";
+          overlayRef.current.style.top = (y * scaleY + canvasRect.top - containerRect.top) + "px";
+          overlayRef.current.style.width = (w * scaleX) + "px";
+          overlayRef.current.style.height = (h * scaleY) + "px";
+          overlayRef.current.style.display = "block";
+        }
+      };
+
+      const handleMouseUp = (e) => {
+        if (!isDrawing || !image) { setIsDrawing(false); return; }
+        if (overlayRef.current) overlayRef.current.style.display = "none";
+        const pos = getPos(e);
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+
+        if (tool === "arrow" && arrowStart) {
+          saveHistory();
+          drawArrowOnCanvas(ctx, arrowStart.x, arrowStart.y, pos.x, pos.y, drawColor, brushSize/8+2);
+          setArrowStart(null);
+          status("↗ Arrow drawn");
+        }
+        if (tool === "redact") {
+          const x = Math.min(startPos.x, pos.x), y = Math.min(startPos.y, pos.y);
+          const w = Math.abs(pos.x - startPos.x), h = Math.abs(pos.y - startPos.y);
+          if (w > 2 && h > 2) { ctx.fillStyle = redactColor; ctx.fillRect(x, y, w, h); status("▬ Redacted"); }
+        }
+        if (tool === "blur") {
+          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
+          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
+          if (w > 4 && h > 4) { applyBlur(ctx, x, y, w, h, brushSize); status("◈ Blurred"); }
+        }
+        if (tool === "pixelate") {
+          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
+          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
+          if (w > 4 && h > 4) { applyPixelate(ctx, x, y, w, h, brushSize); status("⊞ Pixelated"); }
+        }
+        if (tool === "crop") {
+          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
+          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
+          if (w > 10 && h > 10) {
+            setCropSelection({ x, y, w, h });
+            status("⊡ Drag to adjust — press Apply to crop", 0);
+          }
+        }
+        setIsDrawing(false);
+      };
+
+      const commitText = () => {
+        if (!textInput.trim() || !textPos) { setShowTextBox(false); return; }
+        saveHistory();
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        ctx.font = `bold ${fontSize}px Inter, Helvetica Neue, sans-serif`;
+        ctx.fillStyle = drawColor;
+        ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
+        ctx.fillText(textInput, textPos.x, textPos.y);
+        ctx.shadowBlur = 0;
+        setTextInput(""); setShowTextBox(false); setTextPos(null);
+        status("T Text added");
+      };
+
+      const exportImage = (format = "png") => {
+        const canvas = canvasRef.current;
+        const link = document.createElement("a");
+        link.download = `basimp-export.${format}`;
+        link.href = canvas.toDataURL(format === "jpg" ? "image/jpeg" : "image/png", 0.95);
+        link.click(); status(`⬇ Saved as ${format.toUpperCase()}`);
+      };
+
+      const copyToClipboard = async () => {
+        const canvas = canvasRef.current;
+        canvas.toBlob(async (blob) => {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+            status("📋 Copied to clipboard");
+          } catch { status("Export PNG instead — clipboard blocked"); }
+        });
+      };
+
+      const applyCrop = () => {
+        if (!cropSelection) return;
+        const { x, y, w, h } = cropSelection;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        saveHistory();
+        const imageData = ctx.getImageData(x, y, w, h);
+        canvas.width = w; canvas.height = h;
+        ctx.putImageData(imageData, 0, 0);
+        setImageDimensions({ w, h });
+        setCropSelection(null);
+        status("⊡ Cropped ✓");
+      };
+
+      const cancelCrop = () => {
+        setCropSelection(null);
+        status("Crop cancelled");
+      };
+
+      // Close social dropdown when clicking outside
+      useEffect(() => {
+        const handler = (e) => { if (socialRef.current && !socialRef.current.contains(e.target)) setSocialOpen(false); };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+      }, []);
+
+      const createSocialCanvas = (preset) => {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        // Scale to fit screen
+        const maxW = window.innerWidth - 300;
+        const maxH = window.innerHeight - 130;
+        let displayW = preset.w, displayH = preset.h;
+        if (displayW > maxW) { displayH = displayH * maxW / displayW; displayW = maxW; }
+        if (displayH > maxH) { displayW = displayW * maxH / displayH; displayH = maxH; }
+        displayW = Math.round(displayW); displayH = Math.round(displayH);
+        canvas.width = displayW; canvas.height = displayH;
+        // Fill with a nice gradient background
+        const grad = ctx.createLinearGradient(0, 0, displayW, displayH);
+        grad.addColorStop(0, "#1A1A2E"); grad.addColorStop(1, "#16213E");
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, displayW, displayH);
+        // Subtle grid dots
+        ctx.fillStyle = "#FFFFFF08";
+        for (let x = 40; x < displayW; x += 40) for (let y = 40; y < displayH; y += 40) { ctx.beginPath(); ctx.arc(x, y, 1, 0, Math.PI*2); ctx.fill(); }
+        // Dashed border guide
+        ctx.setLineDash([6, 4]); ctx.strokeStyle = "#FFFFFF15"; ctx.lineWidth = 1;
+        ctx.strokeRect(20, 20, displayW - 40, displayH - 40); ctx.setLineDash([]);
+        // Label in center
+        ctx.fillStyle = "#FFFFFF22";
+        ctx.font = `bold ${Math.min(18, displayW/20)}px Inter, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(`${preset.label} — ${preset.w}×${preset.h}px`, displayW/2, displayH/2);
+        ctx.textAlign = "left";
+        setImageDimensions({ w: displayW, h: displayH });
+        setImage("social");
+        setShowDropZone(false);
+        setHistory([]);
+        setSocialOpen(false);
+        setActiveSocial(null);
+        status(`✓ ${preset.label} canvas: ${preset.w}×${preset.h}px`, 3000);
+      };
+
+      // Clear crop selection when switching away from crop tool
+      const selectTool = (t) => {
+        if (t !== "crop" && cropSelection) setCropSelection(null);
+        setTool(t);
+      };
+
+      const getCursor = () => {
+        if (tool === "draw") return "crosshair";
+        if (tool === "text") return "text";
+        if (tool === "select") return "default";
+        return "crosshair";
+      };
+
+      return React.createElement("div", {
+        style: { display: "flex", flexDirection: "column", height: "100vh", background: BRAND.bg, color: BRAND.text, fontFamily: "'Inter', sans-serif", overflow: "hidden" }
+      },
+        // Top bar
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: "52px", background: BRAND.surface, borderBottom: `1px solid ${BRAND.border}`, flexShrink: 0 } },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+            React.createElement("a", { href: "index.html", style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" } },
+              React.createElement("div", { style: { width: 32, height: 32, borderRadius: 8, background: "#12121F", border: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 900, color: BRAND.accent } }, "b"),
+              React.createElement("span", { style: { fontWeight: 800, fontSize: 17, letterSpacing: "-0.3px", color: BRAND.text } },
+                "bas", React.createElement("span", { style: { color: BRAND.accent } }, "imp")
+              )
+            ),
+            React.createElement("span", { style: { fontSize: 11, color: BRAND.textMuted, background: BRAND.accentLight, border: `1px solid ${BRAND.accent}44`, borderRadius: 4, padding: "2px 6px" } }, "BETA")
+          ),
+          React.createElement("div", { style: { fontSize: 13, color: statusMsg.includes("✓") || statusMsg.includes("⬇") ? BRAND.success : BRAND.textMuted } }, statusMsg),
+          React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+            // ── Social canvas picker ──
+            React.createElement("div", { ref: socialRef, style: { position: "relative" } },
+              React.createElement("button", {
+                onClick: () => { setSocialOpen(o => !o); setActiveSocial(null); },
+                style: { padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", border: `1px solid #6C63FF88`, background: socialOpen ? "#6C63FF" : "linear-gradient(135deg,#6C63FF22,#FF475722)", color: socialOpen ? "#fff" : BRAND.text, transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }
+              },
+                React.createElement("span", { style: { fontSize: 14 } }, "📐"),
+                "Social Canvas",
+                React.createElement("span", { style: { fontSize: 10, opacity: 0.7 } }, socialOpen ? "▲" : "▼")
+              ),
+
+              // Dropdown panel
+              socialOpen && React.createElement("div", {
+                style: { position: "absolute", top: "calc(100% + 8px)", right: 0, background: "#12121F", border: `1px solid ${BRAND.border}`, borderRadius: 12, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", zIndex: 200, minWidth: 220, overflow: "hidden" }
+              },
+                React.createElement("div", { style: { padding: "10px 14px 6px", fontSize: 11, color: BRAND.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" } }, "Choose Platform"),
+                SOCIALS.map(platform =>
+                  React.createElement(React.Fragment, { key: platform.id },
+                    // Platform row
+                    React.createElement("div", {
+                      onClick: () => setActiveSocial(activeSocial === platform.id ? null : platform.id),
+                      style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", cursor: "pointer", background: activeSocial === platform.id ? platform.color + "18" : "transparent", borderLeft: activeSocial === platform.id ? `3px solid ${platform.color}` : "3px solid transparent", transition: "all 0.12s" }
+                    },
+                      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                        React.createElement("span", { style: { color: platform.color, display: "flex", alignItems: "center" } }, platform.icon),
+                        React.createElement("span", { style: { fontSize: 13, fontWeight: 600, color: BRAND.text } }, platform.label)
+                      ),
+                      React.createElement("span", { style: { fontSize: 10, color: BRAND.textMuted } }, activeSocial === platform.id ? "▲" : "▶")
+                    ),
+                    // Size submenu
+                    activeSocial === platform.id && React.createElement("div", { style: { background: "#0A0A14", borderTop: `1px solid ${BRAND.border}33`, borderBottom: `1px solid ${BRAND.border}33` } },
+                      platform.sizes.map(size =>
+                        React.createElement("div", {
+                          key: size.label,
+                          onClick: () => createSocialCanvas({ ...size, label: size.label }),
+                          style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px 8px 36px", cursor: "pointer", transition: "background 0.1s" },
+                          onMouseEnter: e => e.currentTarget.style.background = platform.color + "18",
+                          onMouseLeave: e => e.currentTarget.style.background = "transparent",
+                        },
+                          React.createElement("span", { style: { fontSize: 12, color: BRAND.text } }, size.label),
+                          React.createElement("span", { style: { fontSize: 11, color: BRAND.textMuted, fontFamily: "monospace" } }, `${size.w}×${size.h}`)
+                        )
+                      )
+                    )
+                  )
+                ),
+                React.createElement("div", { style: { padding: "8px 14px 10px", fontSize: 11, color: BRAND.textMuted, borderTop: `1px solid ${BRAND.border}` } }, "Creates a blank canvas at exact size")
+              )
+            ),
+
+            image && React.createElement(React.Fragment, null,
+              React.createElement("button", { onClick: undo, disabled: history.length === 0, style: btnStyle(BRAND, history.length === 0), title: "Undo (Ctrl+Z)" }, "↩ Undo"),
+              React.createElement("button", { onClick: copyToClipboard, style: btnStyle(BRAND) }, "📋 Copy"),
+              React.createElement("button", { onClick: () => exportImage("png"), style: btnStyle(BRAND, false, true) }, "⬇ PNG"),
+              React.createElement("button", { onClick: () => exportImage("jpg"), style: btnStyle(BRAND) }, "⬇ JPG"),
+            ),
+            React.createElement("button", { onClick: () => fileInputRef.current.click(), style: btnStyle(BRAND) }, "📁 Open"),
+            React.createElement("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: handleFileInput })
+          )
+        ),
+
+        // Body
+        React.createElement("div", { style: { display: "flex", flex: 1, overflow: "hidden" } },
+
+          // Left toolbar — wider to show labels
+          React.createElement("div", { style: { width: 76, background: BRAND.surface, borderRight: `1px solid ${BRAND.border}`, display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0", gap: 2, flexShrink: 0, overflowY: "auto" } },
+            TOOLS.map(t =>
+              React.createElement("button", {
+                key: t.id, onClick: () => selectTool(t.id), title: `${t.label} (${t.shortcut})`,
+                style: { width: 64, borderRadius: 9, background: tool === t.id ? toolColors[t.id] + "22" : "transparent", border: tool === t.id ? `1.5px solid ${toolColors[t.id]}` : `1.5px solid transparent`, color: tool === t.id ? toolColors[t.id] : BRAND.textMuted, cursor: "pointer", transition: "all 0.15s", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "6px 0", gap: 2 }
+              },
+                React.createElement("span", { style: { fontSize: t.id === "text" ? 15 : 18, fontWeight: t.id === "text" ? 900 : 400, lineHeight: 1 } }, t.icon),
+                React.createElement("span", { style: { fontSize: 9, fontWeight: 600, letterSpacing: 0.2, opacity: tool === t.id ? 1 : 0.7 } }, t.label)
+              )
+            ),
+            React.createElement("div", { style: { flex: 1 } }),
+            // Divider
+            React.createElement("div", { style: { width: 44, height: 1, background: BRAND.border, margin: "6px 0" } }),
+            // Color presets
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, paddingBottom: 6 } },
+              React.createElement("span", { style: { fontSize: 8, color: BRAND.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase" } }, "Color"),
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3 } },
+                COLOR_PRESETS.map(c =>
+                  React.createElement("div", {
+                    key: c, onClick: () => setDrawColor(c),
+                    style: { width: 16, height: 16, borderRadius: 4, background: c, border: drawColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "2px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: drawColor === c ? "scale(1.25)" : "scale(1)" }
+                  })
+                )
+              ),
+              // Custom color picker dot
+              React.createElement("div", { style: { width: 28, height: 28, borderRadius: "50%", background: `conic-gradient(red, yellow, lime, cyan, blue, magenta, red)`, border: `2px solid ${BRAND.border}`, cursor: "pointer", position: "relative", overflow: "hidden", marginTop: 2 }, title: "Custom color" },
+                React.createElement("input", { type: "color", value: drawColor, onChange: e => setDrawColor(e.target.value), style: { position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" } })
+              )
+            )
+          ),
+
+          // Canvas area — canvas is ALWAYS in the DOM so canvasRef is always valid
+          React.createElement("div", {
+            style: { flex: 1, overflow: "auto", position: "relative", background: showDropZone ? BRAND.bg : "repeating-conic-gradient(#1A1A2E 0% 25%, #0F0F1A 0% 50%) 0 0 / 20px 20px" },
+            onDrop: handleDrop, onDragOver: e => e.preventDefault()
+          },
+            // Drop zone overlay — sits on top when no image loaded
+            showDropZone && React.createElement("div", {
+              style: { position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", background: BRAND.bg, cursor: "pointer" },
+              onClick: () => fileInputRef.current.click()
+            },
+              React.createElement("div", { style: { textAlign: "center", padding: 48, border: `2px dashed ${BRAND.border}`, borderRadius: 20, maxWidth: 420 } },
+                React.createElement("div", { style: { fontSize: 52, marginBottom: 16 } }, "🖼"),
+                React.createElement("div", { style: { fontSize: 20, fontWeight: 700, marginBottom: 8 } }, "Drop image here"),
+                React.createElement("div", { style: { color: BRAND.textMuted, fontSize: 14, lineHeight: 1.7 } },
+                  "Press ", React.createElement("kbd", { style: { background: "#2E2E4A", border: "1px solid #4A4A6A", borderRadius: 4, padding: "1px 6px", fontSize: 12 } }, "Ctrl+V"),
+                  " to paste from clipboard", React.createElement("br"), "or click to open a file"
+                ),
+                React.createElement("div", { style: { marginTop: 20, display: "flex", gap: 6, justifyContent: "center" } },
+                  ["PNG","JPG","WebP","GIF"].map(f => React.createElement("span", { key: f, style: { fontSize: 11, color: BRAND.textMuted, background: BRAND.surface, padding: "3px 8px", borderRadius: 4, border: `1px solid ${BRAND.border}` } }, f))
+                )
+              )
+            ),
+            // Canvas wrapper — always rendered, hidden until image loaded
+            React.createElement("div", { style: { display: showDropZone ? "none" : "inline-block", position: "relative", padding: 24 } },
+              React.createElement("canvas", {
+                ref: canvasRef,
+                style: { display: "block", cursor: getCursor(), boxShadow: "0 8px 40px rgba(0,0,0,0.6)", borderRadius: 4, maxWidth: "100%" },
+                onMouseDown: handleMouseDown, onMouseMove: handleMouseMove,
+                onMouseUp: handleMouseUp, onMouseLeave: e => { if(isDrawing) handleMouseUp(e); }
+              }),
+              // Live drag selection overlay
+              React.createElement("div", {
+                ref: overlayRef,
+                style: { display: "none", position: "absolute", pointerEvents: "none", border: `2px dashed ${toolColors[tool] || BRAND.accent}`, background: (toolColors[tool] || BRAND.accent) + "20", borderRadius: 2, zIndex: 5 }
+              }),
+              // Persistent crop selection overlay with Apply/Cancel
+              cropSelection && canvasRef.current && (() => {
+                const canvas = canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = rect.width / canvas.width;
+                const scaleY = rect.height / canvas.height;
+                const ox = cropSelection.x * scaleX + 24;
+                const oy = cropSelection.y * scaleY + 24;
+                const ow = cropSelection.w * scaleX;
+                const oh = cropSelection.h * scaleY;
+                return React.createElement(React.Fragment, null,
+                  // Dark overlay outside selection
+                  React.createElement("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", pointerEvents: "none", zIndex: 6 } }),
+                  // Clear window showing the crop area
+                  React.createElement("div", { style: { position: "absolute", left: ox, top: oy, width: ow, height: oh, boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)", border: "2px solid #2ECC71", zIndex: 7, pointerEvents: "none" } }),
+                  // Apply / Cancel buttons
+                  React.createElement("div", { style: { position: "absolute", left: ox, top: oy + oh + 8, display: "flex", gap: 6, zIndex: 8 } },
+                    React.createElement("button", {
+                      onClick: applyCrop,
+                      style: { padding: "6px 14px", borderRadius: 6, background: "#2ECC71", color: "#000", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer" }
+                    }, "✓ Apply Crop"),
+                    React.createElement("button", {
+                      onClick: cancelCrop,
+                      style: { padding: "6px 10px", borderRadius: 6, background: "rgba(0,0,0,0.7)", color: "#fff", border: "1px solid #555", fontWeight: 600, fontSize: 12, cursor: "pointer" }
+                    }, "✕ Cancel")
+                  )
+                );
+              })(),
+              showTextBox && textPos && React.createElement("div", {
+                style: { position: "absolute", left: 24 + textPos.x / (canvasRef.current ? canvasRef.current.width / canvasRef.current.getBoundingClientRect().width : 1), top: 24 + textPos.y / (canvasRef.current ? canvasRef.current.height / canvasRef.current.getBoundingClientRect().height : 1), zIndex: 20 }
+              },
+                React.createElement("input", {
+                  autoFocus: true, value: textInput, onChange: e => setTextInput(e.target.value),
+                  onKeyDown: e => { if (e.key === "Enter") commitText(); if (e.key === "Escape") setShowTextBox(false); },
+                  placeholder: "Type → Enter...",
+                  style: { background: "rgba(0,0,0,0.9)", color: drawColor, border: `1.5px solid ${drawColor}`, borderRadius: 4, padding: "4px 10px", fontSize: Math.max(12, fontSize * (canvasRef.current ? canvasRef.current.getBoundingClientRect().width / canvasRef.current.width : 1)), fontWeight: 700, outline: "none", minWidth: 160 }
+                })
+              )
+            )
+          ),
+
+          // Right panel
+          image && React.createElement("div", { style: { width: 200, background: BRAND.surface, borderLeft: `1px solid ${BRAND.border}`, padding: "16px 14px", display: "flex", flexDirection: "column", gap: 18, flexShrink: 0, overflowY: "auto" } },
+            React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, "Active Tool"),
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: toolColors[tool] || BRAND.accent } }, TOOLS.find(t => t.id === tool)?.label),
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginTop: 4 } }, {
+                select: "Click to inspect", redact: "Drag to cover text/info", blur: "Drag to blur a region",
+                pixelate: "Drag to pixelate a region", crop: "Drag to select, then Apply", arrow: "Drag to draw arrow",
+                text: "Click to place text", draw: "Drag to draw freehand"
+              }[tool] || "")
+            ),
+
+            // Crop — Apply / Cancel
+            tool === "crop" && cropSelection && React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 } }, "Crop Selection"),
+              React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted } }, `${cropSelection.w} × ${cropSelection.h}px`),
+              React.createElement("button", { onClick: applyCrop, style: { padding: "8px", borderRadius: 7, background: "#2ECC71", color: "#000", border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "✓ Apply Crop"),
+              React.createElement("button", { onClick: cancelCrop, style: { padding: "7px", borderRadius: 7, background: "transparent", color: BRAND.textMuted, border: `1px solid ${BRAND.border}`, fontWeight: 600, fontSize: 12, cursor: "pointer" } }, "✕ Cancel")
+            ),
+
+            ["blur","pixelate","draw","arrow"].includes(tool) && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `${tool === "blur" ? "Blur Radius" : tool === "pixelate" ? "Block Size" : "Size"} — ${brushSize}`),
+              React.createElement("input", { type: "range", min: tool === "pixelate" ? 4 : tool === "blur" ? 4 : 2, max: 40, value: brushSize, onChange: e => setBrushSize(Number(e.target.value)), style: { width: "100%", accentColor: BRAND.accent } })
+            ),
+
+            tool === "text" && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
+              React.createElement("input", { type: "range", min: 12, max: 96, value: fontSize, onChange: e => setFontSize(Number(e.target.value)), style: { width: "100%", accentColor: BRAND.accent } })
+            ),
+
+            tool === "redact" && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Redact Color"),
+              React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                REDACT_COLORS.map(c => React.createElement("div", { key: c, onClick: () => setRedactColor(c), style: { width: 28, height: 28, borderRadius: 6, background: c, border: redactColor === c ? `2px solid ${BRAND.accent}` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer" } }))
+              )
+            ),
+
+            ["draw","text","arrow"].includes(tool) && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Color"),
+              React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 } },
+                COLOR_PRESETS.map(c =>
+                  React.createElement("div", { key: c, onClick: () => setDrawColor(c), style: { width: 22, height: 22, borderRadius: 5, background: c, border: drawColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: drawColor === c ? "scale(1.2)" : "scale(1)" } })
+                )
+              ),
+              React.createElement("input", { type: "color", value: drawColor, onChange: e => setDrawColor(e.target.value), style: { width: "100%", height: 28, borderRadius: 6, border: `1px solid ${BRAND.border}`, cursor: "pointer" } })
+            ),
+
+            React.createElement("div", { style: { marginTop: "auto", paddingTop: 16, borderTop: `1px solid ${BRAND.border}` } },
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Canvas"),
+              React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted } }, `${imageDimensions.w} × ${imageDimensions.h}px`),
+              React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted, marginTop: 4 } }, `${history.length} edit${history.length !== 1 ? "s" : ""}`)
+            ),
+
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+              React.createElement("button", { onClick: copyToClipboard, style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "📋 Copy to Clipboard"),
+              React.createElement("button", { onClick: () => exportImage("png"), style: { ...btnStyle(BRAND, false, true), width: "100%", justifyContent: "center" } }, "⬇ Export PNG"),
+              React.createElement("button", { onClick: () => exportImage("jpg"), style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "⬇ Export JPG")
+            )
+          )
+        ),
+
+        // Bottom bar
+        React.createElement("div", { style: { height: 28, background: BRAND.surface, borderTop: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", fontSize: 11, color: BRAND.textMuted, flexShrink: 0 } },
+          React.createElement("span", null, "basimp.com — Basic Image Manipulator"),
+          React.createElement("span", null, "Ctrl+Z undo  ·  V select  ·  R redact  ·  B blur  ·  P pixelate  ·  C crop  ·  A arrow  ·  T text  ·  D draw")
+        )
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(BasimpEditor));
+  </script>
+</body>
+</html>

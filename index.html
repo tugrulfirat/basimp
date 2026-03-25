@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>basimp — Basic Image Manipulator</title>
+  <meta name="description" content="The fastest way to clean up an image before sharing it. Redact, blur, crop, annotate — done in seconds. No sign-up, no complexity." />
+  <meta property="og:title" content="basimp — Basic Image Manipulator" />
+  <meta property="og:description" content="Redact, blur, crop, annotate. Paste → edit → done." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0A0A14;
+      --surface: #12121F;
+      --surface2: #1A1A2E;
+      --border: #2A2A3E;
+      --accent: #6C63FF;
+      --accent2: #FF4757;
+      --text: #E8E8F0;
+      --muted: #8888AA;
+    }
+
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; line-height: 1.6; }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px; height: 60px;
+      background: rgba(10,10,20,0.85); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--surface2); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 900; color: var(--accent);
+    }
+    .logo-text { font-weight: 800; font-size: 18px; color: var(--text); letter-spacing: -0.3px; }
+    .logo-text span { color: var(--accent); }
+    .nav-links { display: flex; align-items: center; gap: 24px; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .btn-nav {
+      padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      background: var(--accent); color: #fff; border: none; cursor: pointer;
+      text-decoration: none; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-nav:hover { background: #7C75FF; transform: translateY(-1px); }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center; padding: 80px 24px 60px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: ''; position: absolute; width: 600px; height: 600px;
+      background: radial-gradient(circle, #6C63FF18 0%, transparent 70%);
+      top: 20%; left: 50%; transform: translateX(-50%); pointer-events: none;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #6C63FF15; border: 1px solid #6C63FF44;
+      border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 600;
+      color: var(--accent); margin-bottom: 28px; letter-spacing: 0.5px;
+    }
+    .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    h1 {
+      font-size: clamp(36px, 6vw, 72px); font-weight: 900; letter-spacing: -2px;
+      line-height: 1.05; margin-bottom: 20px; max-width: 840px;
+    }
+    h1 em { font-style: normal; color: var(--accent); }
+    h1 .strike { position: relative; color: var(--muted); }
+    h1 .strike::after {
+      content: ''; position: absolute; left: 0; right: 0; top: 50%;
+      height: 3px; background: var(--accent2); border-radius: 2px;
+    }
+
+    .hero-sub {
+      font-size: clamp(16px, 2vw, 20px); color: var(--muted); max-width: 560px;
+      margin-bottom: 40px; font-weight: 400;
+    }
+    .hero-sub strong { color: var(--text); font-weight: 600; }
+
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 56px; }
+    .btn-primary {
+      padding: 14px 32px; border-radius: 10px; font-size: 16px; font-weight: 700;
+      background: var(--accent); color: #fff; border: none; cursor: pointer;
+      text-decoration: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
+      box-shadow: 0 0 30px #6C63FF40;
+    }
+    .btn-primary:hover { background: #7C75FF; transform: translateY(-2px); box-shadow: 0 4px 40px #6C63FF60; }
+    .btn-ghost {
+      padding: 14px 32px; border-radius: 10px; font-size: 16px; font-weight: 600;
+      background: transparent; color: var(--text); border: 1px solid var(--border);
+      cursor: pointer; text-decoration: none; transition: all 0.2s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── App Preview ── */
+    .app-preview {
+      width: 100%; max-width: 900px; border-radius: 16px;
+      background: var(--surface2); border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.6); overflow: hidden;
+    }
+    .preview-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px; background: #12121F; border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .preview-content { display: flex; min-height: 360px; }
+    .preview-toolbar {
+      width: 60px; background: #12121F; border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 6px;
+    }
+    .preview-tool {
+      width: 40px; height: 40px; border-radius: 8px; display: flex;
+      align-items: center; justify-content: center; font-size: 18px; cursor: default;
+    }
+    .preview-tool.active { background: #FF475722; border: 1.5px solid #FF4757; }
+    .preview-canvas {
+      flex: 1; padding: 24px; display: flex; align-items: center; justify-content: center;
+      background: repeating-conic-gradient(#1A1A2E 0% 25%, #12121F 0% 50%) 0 0 / 20px 20px;
+      position: relative;
+    }
+    .preview-image {
+      width: 100%; max-width: 520px; height: 220px;
+      border-radius: 8px; overflow: hidden; position: relative;
+      background: #000; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .preview-person {
+      width: 100%; height: 100%; background: linear-gradient(135deg, #1A1A2E 0%, #2E2E4E 100%);
+      display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 48px;
+    }
+    .redact-box {
+      position: absolute; background: #000; border-radius: 2px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .blur-box {
+      position: absolute; border-radius: 4px;
+      background: rgba(108,99,255,0.3); border: 2px dashed var(--accent);
+      backdrop-filter: blur(6px);
+    }
+    .preview-side {
+      width: 160px; background: #12121F; border-left: 1px solid var(--border);
+      padding: 16px 12px;
+    }
+
+    /* ── Features ── */
+    section { padding: 80px 24px; }
+    .section-label { text-align: center; color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; }
+    h2 { text-align: center; font-size: clamp(28px, 4vw, 44px); font-weight: 800; letter-spacing: -1px; margin-bottom: 48px; }
+    h2 em { font-style: normal; color: var(--accent); }
+
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; max-width: 1000px; margin: 0 auto; }
+    .feature-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 28px; transition: all 0.2s;
+    }
+    .feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 12px; display: flex;
+      align-items: center; justify-content: center; font-size: 22px; margin-bottom: 16px;
+    }
+    .feature-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── How it works ── */
+    .steps { display: flex; gap: 0; max-width: 840px; margin: 0 auto; position: relative; }
+    .steps::before {
+      content: ''; position: absolute; top: 28px; left: 10%; right: 10%;
+      height: 1px; background: var(--border); z-index: 0;
+    }
+    .step { flex: 1; text-align: center; padding: 0 16px; position: relative; z-index: 1; }
+    .step-num {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: var(--surface2); border: 2px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 800; color: var(--accent);
+      margin: 0 auto 16px;
+    }
+    .step h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+    .step p { font-size: 13px; color: var(--muted); }
+
+    /* ── Use cases ── */
+    .use-cases { display: flex; gap: 12px; max-width: 840px; margin: 0 auto; flex-wrap: wrap; justify-content: center; }
+    .use-case {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 40px;
+      padding: 10px 20px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── Pricing ── */
+    .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 640px; margin: 0 auto; }
+    .price-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      padding: 32px 28px; text-align: center;
+    }
+    .price-card.featured {
+      background: linear-gradient(135deg, #6C63FF15, #6C63FF05);
+      border-color: var(--accent);
+    }
+    .price-card h3 { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+    .price { font-size: 40px; font-weight: 900; margin: 16px 0 4px; letter-spacing: -1px; }
+    .price span { font-size: 16px; color: var(--muted); font-weight: 400; }
+    .price-desc { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .price-features { list-style: none; text-align: left; margin-bottom: 24px; }
+    .price-features li { font-size: 13px; padding: 5px 0; display: flex; align-items: center; gap: 8px; }
+    .price-features li::before { content: '✓'; color: var(--accent); font-weight: 700; }
+    .btn-plan {
+      width: 100%; padding: 12px; border-radius: 8px; font-size: 14px; font-weight: 700;
+      cursor: pointer; border: none; transition: all 0.15s;
+    }
+    .btn-plan.primary { background: var(--accent); color: #fff; }
+    .btn-plan.primary:hover { background: #7C75FF; }
+    .btn-plan.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-plan.ghost:hover { border-color: var(--accent); }
+
+    /* ── CTA ── */
+    .cta-section {
+      text-align: center; padding: 80px 24px;
+      background: linear-gradient(135deg, #6C63FF08, transparent 60%);
+      border-top: 1px solid var(--border);
+    }
+    .cta-section h2 { margin-bottom: 12px; }
+    .cta-section p { color: var(--muted); max-width: 440px; margin: 0 auto 32px; font-size: 15px; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border); padding: 28px 32px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; color: var(--muted);
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 600px) {
+      .steps { flex-direction: column; }
+      .steps::before { display: none; }
+      .pricing-grid { grid-template-columns: 1fr; }
+      nav .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Nav ── -->
+  <nav>
+    <a href="#" class="logo">
+      <div class="logo-mark">b</div>
+      <span class="logo-text">bas<span>imp</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+    </div>
+    <a href="./app.html" class="btn-nav">Open Editor →</a>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="badge"><div class="badge-dot"></div> Free to use · No sign-up</div>
+
+    <h1>
+      Stop using <span class="strike">Paint</span> to<br/>
+      hide sensitive info
+    </h1>
+
+    <p class="hero-sub">
+      <strong>basimp</strong> is the fastest way to redact, blur, crop and annotate images before sharing them. Paste → edit → done. No Photoshop, no sign-up, no complexity.
+    </p>
+
+    <div class="hero-actions">
+      <a href="./app.html" class="btn-primary">⚡ Open Editor — It's Free</a>
+      <a href="#features" class="btn-ghost">See what it does →</a>
+    </div>
+
+    <!-- App mockup -->
+    <div class="app-preview">
+      <div class="preview-bar">
+        <div class="dot" style="background:#FF5F57"></div>
+        <div class="dot" style="background:#FFBD2E"></div>
+        <div class="dot" style="background:#28C840"></div>
+        <span style="margin-left:8px;font-size:12px;color:#555;font-family:monospace">basimp.com/app</span>
+      </div>
+      <div class="preview-content">
+        <div class="preview-toolbar">
+          <div class="preview-tool active" title="Redact">▬</div>
+          <div class="preview-tool" style="font-size:18px" title="Blur">◈</div>
+          <div class="preview-tool" title="Crop">⊡</div>
+          <div class="preview-tool" title="Arrow">↗</div>
+          <div class="preview-tool" title="Text" style="font-size:14px;font-weight:800">T</div>
+          <div class="preview-tool" title="Draw">✏</div>
+        </div>
+        <div class="preview-canvas">
+          <div class="preview-image">
+            <div class="preview-person">👤</div>
+            <!-- Redact boxes simulating censored text -->
+            <div class="redact-box" style="left:10%;top:15%;width:38%;height:14%"></div>
+            <div class="redact-box" style="left:10%;top:35%;width:52%;height:10%;border-radius:3px"></div>
+            <!-- Blur overlay -->
+            <div class="blur-box" style="right:8%;top:10%;width:28%;height:30%"></div>
+            <!-- Arrow annotation -->
+            <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 520 220">
+              <defs><marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#FF4757"/></marker></defs>
+              <line x1="280" y1="180" x2="420" y2="80" stroke="#FF4757" stroke-width="2.5" marker-end="url(#ah)"/>
+            </svg>
+          </div>
+        </div>
+        <div class="preview-side">
+          <div style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">Tool</div>
+          <div style="font-size:13px;font-weight:700;color:#FF4757;margin-bottom:20px">Redact</div>
+          <div style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Color</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:20px">
+            <div style="width:22px;height:22px;border-radius:5px;background:#000;border:2px solid #6C63FF"></div>
+            <div style="width:22px;height:22px;border-radius:5px;background:#1A1A2E"></div>
+            <div style="width:22px;height:22px;border-radius:5px;background:#FF4757"></div>
+            <div style="width:22px;height:22px;border-radius:5px;background:#fff;border:1px solid #333"></div>
+          </div>
+          <div style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Export</div>
+          <button style="width:100%;padding:6px;border-radius:6px;background:#6C63FF;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;margin-bottom:6px">⬇ PNG</button>
+          <button style="width:100%;padding:6px;border-radius:6px;background:transparent;color:#888;border:1px solid #2A2A3E;font-size:11px;font-weight:600;cursor:pointer">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Use cases ── -->
+  <section style="padding: 0 24px 60px; text-align: center;">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">Used by people who need to share images without oversharing</div>
+    <div class="use-cases">
+      <div class="use-case">🔒 Redact personal info before sharing</div>
+      <div class="use-case">👤 Blur faces in screenshots</div>
+      <div class="use-case">✂️ Quick crop for Slack / email</div>
+      <div class="use-case">↗ Annotate bugs for dev team</div>
+      <div class="use-case">📊 Hide confidential data in decks</div>
+      <div class="use-case">🖊 Add text overlays to mockups</div>
+    </div>
+  </section>
+
+  <!-- ── Features ── -->
+  <section id="features">
+    <div class="section-label">Tools</div>
+    <h2>Everything you need. <em>Nothing you don't.</em></h2>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FF475715">▬</div>
+        <h3>Solid Redaction</h3>
+        <p>Draw a box over any text, name, email, or number. Solid fill — no brush strokes, no partial covers. Proper redaction.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#6C63FF15">◈</div>
+        <h3>Blur Region</h3>
+        <p>Select any area and apply a strong Gaussian blur. Perfect for faces, backgrounds, or anything you want obscured but not blacked out.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#F39C1215">⊞</div>
+        <h3>Pixelate</h3>
+        <p>The classic privacy tool. Select an area and pixelate it — looks intentional, not accidental.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#2ECC7115">✂</div>
+        <h3>Crop</h3>
+        <p>Draw to crop. No dialog boxes, no entering pixel values — just drag the area you want to keep.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FF475715">↗</div>
+        <h3>Arrows & Annotations</h3>
+        <p>Point at things. Add arrows in any color and size to highlight issues, explain UI, or direct attention.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#00BCD415">T</div>
+        <h3>Text Overlay</h3>
+        <p>Click anywhere to add text. Choose size and color. Great for labeling, captioning, or adding watermarks.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FF9FF315">✏</div>
+        <h3>Free Draw</h3>
+        <p>Brush tool for freehand marks — circle something, cross it out, highlight a region with color.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#6C63FF15">📋</div>
+        <h3>Paste & Copy Clipboard</h3>
+        <p>Ctrl+V to paste a screenshot directly. One click to copy the result back. Zero file management.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How it works ── -->
+  <section id="how" style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+    <div class="section-label">Workflow</div>
+    <h2>Three steps. <em>Ten seconds.</em></h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Paste or Open</h3>
+        <p>Ctrl+V to paste from clipboard, or open any PNG / JPG / WebP file.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Edit</h3>
+        <p>Pick a tool — redact, blur, crop, annotate. Draw on the canvas. Undo if needed.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Export</h3>
+        <p>Copy to clipboard or download as PNG/JPG. Back to Slack, email, or wherever you need it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Pricing ── -->
+  <section id="pricing">
+    <div class="section-label">Pricing</div>
+    <h2>Free to start. <em>AI when you need it.</em></h2>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <h3>Free</h3>
+        <div class="price">$0<span>/forever</span></div>
+        <div class="price-desc">All core tools, always free.</div>
+        <ul class="price-features">
+          <li>Redact & blur</li>
+          <li>Pixelate regions</li>
+          <li>Crop & resize</li>
+          <li>Arrows & text</li>
+          <li>Free draw</li>
+          <li>PNG & JPG export</li>
+          <li>Paste from clipboard</li>
+        </ul>
+        <button class="btn-plan ghost" onclick="window.location='./app.html'">Start for free</button>
+      </div>
+      <div class="price-card featured">
+        <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Coming soon</div>
+        <h3>Pro + AI</h3>
+        <div class="price">$9<span>/mo</span></div>
+        <div class="price-desc">AI-powered tools for power users.</div>
+        <ul class="price-features">
+          <li>Everything in Free</li>
+          <li>AI background removal</li>
+          <li>AI object eraser</li>
+          <li>AI inpainting</li>
+          <li>"Describe what to remove" prompt</li>
+          <li>Batch processing</li>
+          <li>No watermarks</li>
+        </ul>
+        <button class="btn-plan primary">Join waitlist</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <section class="cta-section">
+    <h2>Ready to clean up that image?</h2>
+    <p>No account. No install. No Photoshop. Just paste and go.</p>
+    <a href="./app.html" class="btn-primary" style="font-size:18px;padding:16px 40px">⚡ Open basimp — Free</a>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer>
+    <div class="logo" style="gap:8px">
+      <div class="logo-mark" style="width:28px;height:28px;font-size:15px;border-radius:7px">b</div>
+      <span class="logo-text" style="font-size:14px">bas<span>imp</span></span>
+    </div>
+    <span>Basic Image Manipulator — fast, private, free.</span>
+    <div style="display:flex;gap:20px">
+      <a href="#">Privacy</a>
+      <a href="#">Twitter</a>
+      <a href="mailto:hello@basimp.com">Contact</a>
+    </div>
+  </footer>
+
+</body>
+</html>
