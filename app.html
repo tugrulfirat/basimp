@@ -162,9 +162,16 @@
       const [fontSize, setFontSize] = useState(24);
       const [arrowStart, setArrowStart] = useState(null);
       const [cropSelection, setCropSelection] = useState(null); // { x, y, w, h } in canvas coords
-      const [socialOpen, setSocialOpen] = useState(false);       // social platform picker open
-      const [activeSocial, setActiveSocial] = useState(null);    // currently expanded platform
+      const cropSelRef = useRef(null); // always-current mirror of cropSelection for use inside event handlers
+      const cropDragRef = useRef(null); // { mode, startX, startY, origCrop }
+      const isDrawingRef = useRef(false); // mirror of isDrawing for stable event handler reads
+      const startPosRef = useRef({ x: 0, y: 0 }); // mirror of startPos for stable event handler reads
+      const toolRef = useRef("redact"); // mirror of tool for stable event handler reads
+      const [socialOpen, setSocialOpen] = useState(false);
+      const [activeSocial, setActiveSocial] = useState(null);
+      const [saveAsOpen, setSaveAsOpen] = useState(false);
       const socialRef = useRef(null);
+      const saveAsRef = useRef(null);
       const lastDrawPos = useRef(null);
 
       // Curated presets that look great on any screen (light & dark)
@@ -327,14 +334,70 @@ const loadImage = useCallback((src) => {
         ctx.restore();
       };
 
+      // Keep refs in sync with state so event handlers always see current value
+      const setCrop = (val) => {
+        cropSelRef.current = val;
+        setCropSelection(val);
+      };
+      const setDrawing = (val) => {
+        isDrawingRef.current = val;
+        setIsDrawing(val);
+      };
+      const setStart = (val) => {
+        startPosRef.current = val;
+        setStartPos(val);
+      };
+
+      // ── Crop handle hit-test — uses ref, never stale ──────────────────────────
+      const HANDLE_R = 10; // hit radius in screen px (generous for usability)
+      const getCropHandleAtPos = (clientX, clientY) => {
+        const sel = cropSelRef.current;
+        if (!sel || !canvasRef.current) return null;
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = rect.width / canvas.width;
+        const scaleY = rect.height / canvas.height;
+        const ox = sel.x * scaleX + rect.left;
+        const oy = sel.y * scaleY + rect.top;
+        const ow = sel.w * scaleX;
+        const oh = sel.h * scaleY;
+        const handles = {
+          nw:[ox,oy],        n:[ox+ow/2,oy],        ne:[ox+ow,oy],
+          w:[ox,oy+oh/2],                             e:[ox+ow,oy+oh/2],
+          sw:[ox,oy+oh],     s:[ox+ow/2,oy+oh],     se:[ox+ow,oy+oh],
+        };
+        for (const [name,[hx,hy]] of Object.entries(handles)) {
+          if (Math.abs(clientX-hx) <= HANDLE_R && Math.abs(clientY-hy) <= HANDLE_R) return name;
+        }
+        if (clientX>=ox && clientX<=ox+ow && clientY>=oy && clientY<=oy+oh) return 'move';
+        return null;
+      };
+
       const handleMouseDown = (e) => {
         if (!image) return;
         const pos = getPos(e);
-        if (tool === "text") { setTextPos(pos); setShowTextBox(true); return; }
-        if (tool === "arrow") { setArrowStart(pos); setIsDrawing(true); return; }
+        const currentTool = toolRef.current;
+        if (currentTool === "text") { setTextPos(pos); setShowTextBox(true); return; }
+        if (currentTool === "arrow") { setArrowStart(pos); setDrawing(true); return; }
+
+        if (currentTool === "crop") {
+          const handle = getCropHandleAtPos(e.clientX, e.clientY);
+          if (handle && cropSelRef.current) {
+            // Drag existing handle or move
+            cropDragRef.current = { mode: handle, startX: e.clientX, startY: e.clientY, origCrop: { ...cropSelRef.current } };
+            setDrawing(true);
+          } else {
+            // Fresh draw — clear old selection
+            setCrop(null);
+            cropDragRef.current = null;
+            setDrawing(true); setStart(pos);
+          }
+          return;
+        }
+
         saveHistory();
-        setIsDrawing(true); setStartPos(pos); lastDrawPos.current = pos;
-        if (tool === "draw") {
+        setDrawing(true); setStart(pos); lastDrawPos.current = pos;
+        if (currentTool === "draw") {
           const ctx = canvasRef.current.getContext("2d");
           ctx.beginPath(); ctx.arc(pos.x, pos.y, brushSize/2, 0, Math.PI*2);
           ctx.fillStyle = drawColor; ctx.fill();
@@ -342,73 +405,133 @@ const loadImage = useCallback((src) => {
       };
 
       const handleMouseMove = (e) => {
-        if (!isDrawing || !image) return;
+        if (!image) return;
+        const currentTool = toolRef.current;
+
+        // Cursor update when crop tool active + selection exists (use ref, not stale state)
+        if (currentTool === "crop" && cropSelRef.current && !isDrawingRef.current && canvasRef.current) {
+          const h = getCropHandleAtPos(e.clientX, e.clientY);
+          const cursorMap = { nw:'nw-resize',n:'n-resize',ne:'ne-resize',w:'w-resize',e:'e-resize',sw:'sw-resize',s:'s-resize',se:'se-resize',move:'move' };
+          canvasRef.current.style.cursor = cursorMap[h] || 'crosshair';
+        }
+
+        if (!isDrawingRef.current) return;
         const pos = getPos(e);
-        if (tool === "draw") {
+
+        if (currentTool === "draw") {
           const ctx = canvasRef.current.getContext("2d");
           ctx.beginPath(); ctx.moveTo(lastDrawPos.current.x, lastDrawPos.current.y);
           ctx.lineTo(pos.x, pos.y);
           ctx.strokeStyle = drawColor; ctx.lineWidth = brushSize;
           ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
           lastDrawPos.current = pos;
+          return;
         }
-        // Selection overlay
-        if (["redact","blur","pixelate","crop"].includes(tool) && overlayRef.current) {
+
+        if (currentTool === "crop") {
+          const canvas = canvasRef.current;
+          if (cropDragRef.current) {
+            // Resize or move existing selection
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const dx = (e.clientX - cropDragRef.current.startX) * scaleX;
+            const dy = (e.clientY - cropDragRef.current.startY) * scaleY;
+            const o = cropDragRef.current.origCrop;
+            const mode = cropDragRef.current.mode;
+            const MIN = 10;
+            let {x, y, w, h} = o;
+
+            if (mode === 'move') {
+              x = Math.max(0, Math.min(canvas.width - w, o.x + dx));
+              y = Math.max(0, Math.min(canvas.height - h, o.y + dy));
+            } else {
+              // East/West edges
+              if (mode.includes('e')) w = Math.max(MIN, Math.min(canvas.width - o.x, o.w + dx));
+              if (mode.includes('w')) { const nx = Math.max(0, Math.min(o.x + o.w - MIN, o.x + dx)); x = nx; w = o.x + o.w - nx; }
+              // North/South edges
+              if (mode.includes('s')) h = Math.max(MIN, Math.min(canvas.height - o.y, o.h + dy));
+              if (mode.includes('n')) { const ny = Math.max(0, Math.min(o.y + o.h - MIN, o.y + dy)); y = ny; h = o.y + o.h - ny; }
+            }
+            setCrop({ x:Math.round(x), y:Math.round(y), w:Math.round(w), h:Math.round(h) });
+          } else {
+            // Drawing fresh selection live
+            const sp = startPosRef.current;
+            const x = Math.floor(Math.min(sp.x, pos.x));
+            const y = Math.floor(Math.min(sp.y, pos.y));
+            const w = Math.floor(Math.abs(pos.x - sp.x));
+            const h = Math.floor(Math.abs(pos.y - sp.y));
+            if (w > 2 && h > 2) setCrop({ x, y, w, h });
+          }
+          return;
+        }
+
+        // Overlay for other rect tools
+        if (["redact","blur","pixelate"].includes(currentTool) && overlayRef.current) {
           const canvas = canvasRef.current;
           const rect = canvas.getBoundingClientRect();
           const scaleX = rect.width / canvas.width;
           const scaleY = rect.height / canvas.height;
-          const x = Math.min(startPos.x, getPos(e).x);
-          const y = Math.min(startPos.y, getPos(e).y);
-          const w = Math.abs(getPos(e).x - startPos.x);
-          const h = Math.abs(getPos(e).y - startPos.y);
-          const canvasRect = canvas.getBoundingClientRect();
+          const sp = startPosRef.current;
+          const x = Math.min(sp.x, pos.x);
+          const y = Math.min(sp.y, pos.y);
+          const w = Math.abs(pos.x - sp.x);
+          const h = Math.abs(pos.y - sp.y);
           const containerRect = canvas.parentElement.getBoundingClientRect();
-          overlayRef.current.style.left = (x * scaleX + canvasRect.left - containerRect.left) + "px";
-          overlayRef.current.style.top = (y * scaleY + canvasRect.top - containerRect.top) + "px";
-          overlayRef.current.style.width = (w * scaleX) + "px";
+          overlayRef.current.style.left = (x * scaleX + rect.left - containerRect.left) + "px";
+          overlayRef.current.style.top  = (y * scaleY + rect.top  - containerRect.top)  + "px";
+          overlayRef.current.style.width  = (w * scaleX) + "px";
           overlayRef.current.style.height = (h * scaleY) + "px";
           overlayRef.current.style.display = "block";
         }
       };
 
       const handleMouseUp = (e) => {
-        if (!isDrawing || !image) { setIsDrawing(false); return; }
+        if (!image) { setDrawing(false); return; }
         if (overlayRef.current) overlayRef.current.style.display = "none";
+        const currentTool = toolRef.current;
+
+        if (currentTool === "crop") {
+          cropDragRef.current = null;
+          if (cropSelRef.current && cropSelRef.current.w > 10 && cropSelRef.current.h > 10) {
+            status("⊡ Drag handles to resize · drag inside to move · Apply to crop", 0);
+          } else {
+            setCrop(null);
+          }
+          setDrawing(false);
+          return;
+        }
+
+        if (!isDrawingRef.current) { setDrawing(false); return; }
         const pos = getPos(e);
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
 
-        if (tool === "arrow" && arrowStart) {
+        if (currentTool === "arrow" && arrowStart) {
           saveHistory();
           drawArrowOnCanvas(ctx, arrowStart.x, arrowStart.y, pos.x, pos.y, drawColor, brushSize/8+2);
           setArrowStart(null);
           status("↗ Arrow drawn");
         }
-        if (tool === "redact") {
-          const x = Math.min(startPos.x, pos.x), y = Math.min(startPos.y, pos.y);
-          const w = Math.abs(pos.x - startPos.x), h = Math.abs(pos.y - startPos.y);
+        if (currentTool === "redact") {
+          const sp = startPosRef.current;
+          const x = Math.min(sp.x, pos.x), y = Math.min(sp.y, pos.y);
+          const w = Math.abs(pos.x - sp.x), h = Math.abs(pos.y - sp.y);
           if (w > 2 && h > 2) { ctx.fillStyle = redactColor; ctx.fillRect(x, y, w, h); status("▬ Redacted"); }
         }
-        if (tool === "blur") {
-          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
-          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
+        if (currentTool === "blur") {
+          const sp = startPosRef.current;
+          const x = Math.floor(Math.min(sp.x, pos.x)), y = Math.floor(Math.min(sp.y, pos.y));
+          const w = Math.floor(Math.abs(pos.x - sp.x)), h = Math.floor(Math.abs(pos.y - sp.y));
           if (w > 4 && h > 4) { applyBlur(ctx, x, y, w, h, brushSize); status("◈ Blurred"); }
         }
-        if (tool === "pixelate") {
-          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
-          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
+        if (currentTool === "pixelate") {
+          const sp = startPosRef.current;
+          const x = Math.floor(Math.min(sp.x, pos.x)), y = Math.floor(Math.min(sp.y, pos.y));
+          const w = Math.floor(Math.abs(pos.x - sp.x)), h = Math.floor(Math.abs(pos.y - sp.y));
           if (w > 4 && h > 4) { applyPixelate(ctx, x, y, w, h, brushSize); status("⊞ Pixelated"); }
         }
-        if (tool === "crop") {
-          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
-          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
-          if (w > 10 && h > 10) {
-            setCropSelection({ x, y, w, h });
-            status("⊡ Drag to adjust — press Apply to crop", 0);
-          }
-        }
-        setIsDrawing(false);
+        setDrawing(false);
       };
 
       const commitText = () => {
@@ -429,7 +552,10 @@ const loadImage = useCallback((src) => {
         const canvas = canvasRef.current;
         const link = document.createElement("a");
         link.download = `basimp-export.${format}`;
-        link.href = canvas.toDataURL(format === "jpg" ? "image/jpeg" : "image/png", 0.95);
+        const mimeMap = { png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg", webp:"image/webp", bmp:"image/bmp" };
+        const mime = mimeMap[format] || "image/png";
+        const quality = (format === "jpg" || format === "jpeg" || format === "webp") ? 0.95 : undefined;
+        link.href = canvas.toDataURL(mime, quality);
         link.click(); status(`⬇ Saved as ${format.toUpperCase()}`);
       };
 
@@ -444,8 +570,9 @@ const loadImage = useCallback((src) => {
       };
 
       const applyCrop = () => {
-        if (!cropSelection) return;
-        const { x, y, w, h } = cropSelection;
+        const sel = cropSelRef.current;
+        if (!sel) return;
+        const { x, y, w, h } = sel;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
         saveHistory();
@@ -453,18 +580,21 @@ const loadImage = useCallback((src) => {
         canvas.width = w; canvas.height = h;
         ctx.putImageData(imageData, 0, 0);
         setImageDimensions({ w, h });
-        setCropSelection(null);
+        setCrop(null);
         status("⊡ Cropped ✓");
       };
 
       const cancelCrop = () => {
-        setCropSelection(null);
+        setCrop(null);
         status("Crop cancelled");
       };
 
       // Close social dropdown when clicking outside
       useEffect(() => {
-        const handler = (e) => { if (socialRef.current && !socialRef.current.contains(e.target)) setSocialOpen(false); };
+        const handler = (e) => {
+          if (socialRef.current && !socialRef.current.contains(e.target)) setSocialOpen(false);
+          if (saveAsRef.current && !saveAsRef.current.contains(e.target)) setSaveAsOpen(false);
+        };
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
       }, []);
@@ -507,7 +637,8 @@ const loadImage = useCallback((src) => {
 
       // Clear crop selection when switching away from crop tool
       const selectTool = (t) => {
-        if (t !== "crop" && cropSelection) setCropSelection(null);
+        if (t !== "crop" && cropSelRef.current) setCrop(null);
+        toolRef.current = t;
         setTool(t);
       };
 
@@ -589,6 +720,33 @@ const loadImage = useCallback((src) => {
               React.createElement("button", { onClick: copyToClipboard, style: btnStyle(BRAND) }, "📋 Copy"),
               React.createElement("button", { onClick: () => exportImage("png"), style: btnStyle(BRAND, false, true) }, "⬇ PNG"),
               React.createElement("button", { onClick: () => exportImage("jpg"), style: btnStyle(BRAND) }, "⬇ JPG"),
+              // Save As dropdown
+              React.createElement("div", { ref: saveAsRef, style: { position: "relative" } },
+                React.createElement("button", {
+                  onClick: () => setSaveAsOpen(o => !o),
+                  style: { ...btnStyle(BRAND), gap: 4 }
+                }, "⬇ More ▾"),
+                saveAsOpen && React.createElement("div", {
+                  style: { position: "absolute", top: "calc(100% + 6px)", right: 0, background: "#12121F", border: `1px solid ${BRAND.border}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.6)", zIndex: 200, minWidth: 160, overflow: "hidden" }
+                },
+                  React.createElement("div", { style: { padding: "8px 12px 4px", fontSize: 10, color: BRAND.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" } }, "Save As"),
+                  [
+                    { fmt: "webp", label: "WebP", note: "Best for web — smallest size" },
+                    { fmt: "bmp",  label: "BMP",  note: "Uncompressed bitmap" },
+                  ].map(({fmt, label, note}) =>
+                    React.createElement("div", {
+                      key: fmt,
+                      onClick: () => { exportImage(fmt); setSaveAsOpen(false); },
+                      style: { padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
+                      onMouseEnter: e => e.currentTarget.style.background = BRAND.surfaceHover,
+                      onMouseLeave: e => e.currentTarget.style.background = "transparent",
+                    },
+                      React.createElement("span", { style: { fontSize: 13, fontWeight: 600, color: BRAND.text } }, `⬇ ${label}`),
+                      React.createElement("span", { style: { fontSize: 10, color: BRAND.textMuted } }, note)
+                    )
+                  )
+                )
+              ),
             ),
             React.createElement("button", { onClick: () => fileInputRef.current.click(), style: btnStyle(BRAND) }, "📁 Open"),
             React.createElement("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: handleFileInput })
@@ -658,7 +816,7 @@ const loadImage = useCallback((src) => {
                 ref: canvasRef,
                 style: { display: "block", cursor: getCursor(), boxShadow: "0 8px 40px rgba(0,0,0,0.6)", borderRadius: 4, maxWidth: "100%" },
                 onMouseDown: handleMouseDown, onMouseMove: handleMouseMove,
-                onMouseUp: handleMouseUp, onMouseLeave: e => { if(isDrawing) handleMouseUp(e); }
+                onMouseUp: handleMouseUp, onMouseLeave: e => { if(isDrawingRef.current) handleMouseUp(e); }
               }),
               // Live drag selection overlay
               React.createElement("div", {
@@ -675,21 +833,40 @@ const loadImage = useCallback((src) => {
                 const oy = cropSelection.y * scaleY + 24;
                 const ow = cropSelection.w * scaleX;
                 const oh = cropSelection.h * scaleY;
+                const HSIZE = 8; // handle square half-size in px
+                const handlePos = [
+                  { key:'nw', left:ox-HSIZE,      top:oy-HSIZE,      cursor:'nw-resize' },
+                  { key:'n',  left:ox+ow/2-HSIZE, top:oy-HSIZE,      cursor:'n-resize'  },
+                  { key:'ne', left:ox+ow-HSIZE,   top:oy-HSIZE,      cursor:'ne-resize' },
+                  { key:'w',  left:ox-HSIZE,      top:oy+oh/2-HSIZE, cursor:'w-resize'  },
+                  { key:'e',  left:ox+ow-HSIZE,   top:oy+oh/2-HSIZE, cursor:'e-resize'  },
+                  { key:'sw', left:ox-HSIZE,      top:oy+oh-HSIZE,   cursor:'sw-resize' },
+                  { key:'s',  left:ox+ow/2-HSIZE, top:oy+oh-HSIZE,   cursor:'s-resize'  },
+                  { key:'se', left:ox+ow-HSIZE,   top:oy+oh-HSIZE,   cursor:'se-resize' },
+                ];
                 return React.createElement(React.Fragment, null,
-                  // Dark overlay outside selection
-                  React.createElement("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", pointerEvents: "none", zIndex: 6 } }),
-                  // Clear window showing the crop area
-                  React.createElement("div", { style: { position: "absolute", left: ox, top: oy, width: ow, height: oh, boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)", border: "2px solid #2ECC71", zIndex: 7, pointerEvents: "none" } }),
+                  // Dark outside overlay
+                  React.createElement("div", { style: { position:"absolute", inset:0, background:"rgba(0,0,0,0.45)", pointerEvents:"none", zIndex:6 } }),
+                  // Crop window (clears darkness via box-shadow trick)
+                  React.createElement("div", { style: { position:"absolute", left:ox, top:oy, width:ow, height:oh, boxShadow:"0 0 0 9999px rgba(0,0,0,0.45)", border:"2px solid #2ECC71", zIndex:7, pointerEvents:"none" } },
+                    // Rule-of-thirds grid lines
+                    React.createElement("div", { style:{position:"absolute",left:"33.3%",top:0,width:1,height:"100%",background:"rgba(255,255,255,0.2)",pointerEvents:"none"} }),
+                    React.createElement("div", { style:{position:"absolute",left:"66.6%",top:0,width:1,height:"100%",background:"rgba(255,255,255,0.2)",pointerEvents:"none"} }),
+                    React.createElement("div", { style:{position:"absolute",left:0,top:"33.3%",width:"100%",height:1,background:"rgba(255,255,255,0.2)",pointerEvents:"none"} }),
+                    React.createElement("div", { style:{position:"absolute",left:0,top:"66.6%",width:"100%",height:1,background:"rgba(255,255,255,0.2)",pointerEvents:"none"} })
+                  ),
+                  // 8 resize handles
+                  ...handlePos.map(h =>
+                    React.createElement("div", { key:h.key, style:{ position:"absolute", left:h.left, top:h.top, width:HSIZE*2, height:HSIZE*2, background:"#fff", border:"1.5px solid #2ECC71", borderRadius:2, zIndex:9, cursor:h.cursor, boxShadow:"0 1px 4px rgba(0,0,0,0.4)" } })
+                  ),
+                  // Size readout
+                  React.createElement("div", { style:{ position:"absolute", left:ox, top:oy-26, background:"rgba(0,0,0,0.75)", color:"#2ECC71", fontSize:11, fontWeight:700, padding:"2px 8px", borderRadius:4, zIndex:9, pointerEvents:"none", whiteSpace:"nowrap" } },
+                    `${cropSelection.w} × ${cropSelection.h}px`
+                  ),
                   // Apply / Cancel buttons
-                  React.createElement("div", { style: { position: "absolute", left: ox, top: oy + oh + 8, display: "flex", gap: 6, zIndex: 8 } },
-                    React.createElement("button", {
-                      onClick: applyCrop,
-                      style: { padding: "6px 14px", borderRadius: 6, background: "#2ECC71", color: "#000", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer" }
-                    }, "✓ Apply Crop"),
-                    React.createElement("button", {
-                      onClick: cancelCrop,
-                      style: { padding: "6px 10px", borderRadius: 6, background: "rgba(0,0,0,0.7)", color: "#fff", border: "1px solid #555", fontWeight: 600, fontSize: 12, cursor: "pointer" }
-                    }, "✕ Cancel")
+                  React.createElement("div", { style: { position:"absolute", left:ox, top:oy+oh+10, display:"flex", gap:6, zIndex:9 } },
+                    React.createElement("button", { onClick:applyCrop, style:{ padding:"6px 14px", borderRadius:6, background:"#2ECC71", color:"#000", border:"none", fontWeight:700, fontSize:12, cursor:"pointer" } }, "✓ Apply Crop"),
+                    React.createElement("button", { onClick:cancelCrop, style:{ padding:"6px 10px", borderRadius:6, background:"rgba(0,0,0,0.7)", color:"#fff", border:"1px solid #555", fontWeight:600, fontSize:12, cursor:"pointer" } }, "✕ Cancel")
                   )
                 );
               })(),
