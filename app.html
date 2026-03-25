@@ -147,7 +147,8 @@
       const fileInputRef = useRef(null);
       const [image, setImage] = useState(null);
       const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
-      const [tool, setTool] = useState("redact");
+      const [tool, setTool] = useState("arrow");
+      const [arrowStyle, setArrowStyle] = useState("classic");
       const [isDrawing, setIsDrawing] = useState(false);
       const [startPos, setStartPos] = useState({ x: 0, y: 0 });
       const [history, setHistory] = useState([]);
@@ -324,17 +325,54 @@ const loadImage = useCallback((src) => {
         ctx.putImageData(imageData, x, y);
       };
 
-      const drawArrowOnCanvas = (ctx, x1, y1, x2, y2, color = "#FF4757", size = 3) => {
-        const angle = Math.atan2(y2 - y1, x2 - x1);
-        const headLen = 18 + size * 3;
+      const drawArrowOnCanvas = (ctx, x1, y1, x2, y2, color = "#FF4757", size = 3, style = "classic") => {
+        const dx = x2 - x1, dy = y2 - y1;
+        const angle = Math.atan2(dy, dx);
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len < 5) return;
+        
         ctx.save();
         ctx.strokeStyle = color; ctx.fillStyle = color;
-        ctx.lineWidth = size + 1; ctx.lineCap = "round";
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x2, y2);
-        ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/7), y2 - headLen * Math.sin(angle - Math.PI/7));
-        ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - headLen * Math.sin(angle + Math.PI/7));
-        ctx.closePath(); ctx.fill();
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
+        
+        if (style === "elegant") {
+          ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+          ctx.lineWidth = Math.max(2, size*0.6);
+          const headLen = 16 + size*1.5;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/9), y2 - headLen * Math.sin(angle - Math.PI/9));
+          ctx.quadraticCurveTo(x2 - headLen*0.7 * Math.cos(angle), y2 - headLen*0.7 * Math.sin(angle), x2 - headLen * Math.cos(angle + Math.PI/9), y2 - headLen * Math.sin(angle + Math.PI/9));
+          ctx.closePath(); ctx.fill();
+        } else if (style === "bold") {
+          ctx.lineWidth = size * 2.5 + 2;
+          const headLen = 24 + size * 4;
+          const shrinkX = x2 - Math.cos(angle) * headLen * 0.4;
+          const shrinkY = y2 - Math.sin(angle) * headLen * 0.4;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(shrinkX, shrinkY); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/6), y2 - headLen * Math.sin(angle - Math.PI/6));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/6), y2 - headLen * Math.sin(angle + Math.PI/6));
+          ctx.closePath(); ctx.fill();
+        } else if (style === "dashed") {
+          ctx.lineWidth = size + 1;
+          const headLen = 18 + size * 3;
+          ctx.setLineDash([size*3 + 5, size*2 + 4]);
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2 - Math.cos(angle)*headLen*0.8, y2 - Math.sin(angle)*headLen*0.8); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.beginPath(); ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/7), y2 - headLen * Math.sin(angle - Math.PI/7));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - headLen * Math.sin(angle + Math.PI/7));
+          ctx.closePath(); ctx.fill();
+        } else {
+          ctx.lineWidth = size + 1;
+          const headLen = 18 + size * 3;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/7), y2 - headLen * Math.sin(angle - Math.PI/7));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - headLen * Math.sin(angle + Math.PI/7));
+          ctx.closePath(); ctx.fill();
+        }
         ctx.restore();
       };
 
@@ -500,9 +538,9 @@ const loadImage = useCallback((src) => {
 
         if (tool === "arrow" && arrowStart) {
           saveHistory();
-          drawArrowOnCanvas(ctx, arrowStart.x, arrowStart.y, pos.x, pos.y, drawColor, brushSize/8+2);
+          drawArrowOnCanvas(ctx, arrowStart.x, arrowStart.y, pos.x, pos.y, drawColor, brushSize/8+2, arrowStyle);
           setArrowStart(null);
-          status("↗ Arrow drawn");
+          status(`↗ Arrow drawn (${arrowStyle})`);
         }
         if (tool === "redact") {
           const x = Math.min(startPos.x, pos.x), y = Math.min(startPos.y, pos.y);
@@ -765,6 +803,21 @@ const loadImage = useCallback((src) => {
             React.createElement("div", { style: { flex: 1 } }),
             // Divider
             React.createElement("div", { style: { width: 44, height: 1, background: BRAND.border, margin: "6px 0" } }),
+            
+            // Arrow styles (only active if tool is arrow)
+            tool === "arrow" && React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, paddingBottom: 6, width: "100%" } },
+              React.createElement("span", { style: { fontSize: 8, color: BRAND.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase" } }, "Style"),
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, width: "100%", padding: "0 6px" } },
+                [{id:"classic",icon:"↗"}, {id:"elegant",icon:"⤤"}, {id:"dashed",icon:"⤏"}, {id:"bold",icon:"➔"}].map(s =>
+                  React.createElement("div", {
+                    key: s.id, onClick: () => setArrowStyle(s.id), title: s.id.charAt(0).toUpperCase() + s.id.slice(1),
+                    style: { height: 26, borderRadius: 6, background: arrowStyle === s.id ? BRAND.accent+"33" : "transparent", border: arrowStyle === s.id ? `1px solid ${BRAND.accent}` : `1px solid ${BRAND.border}`, color: arrowStyle === s.id ? BRAND.accent : BRAND.textMuted, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, transition: "all 0.1s" }
+                  }, s.icon)
+                )
+              )
+            ),
+            tool === "arrow" && React.createElement("div", { style: { width: 44, height: 1, background: BRAND.border, margin: "0 0 6px 0" } }),
+
             // Color presets
             React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, paddingBottom: 6 } },
               React.createElement("span", { style: { fontSize: 8, color: BRAND.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase" } }, "Color"),
