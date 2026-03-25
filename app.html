@@ -147,7 +147,9 @@
       const fileInputRef = useRef(null);
       const [image, setImage] = useState(null);
       const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
-      const [zoom, setZoom] = useState("fit");
+      const [isFit, setIsFit] = useState(true);
+      const [customZoom, setCustomZoom] = useState(100);
+      const [displayZoom, setDisplayZoom] = useState(100);
       const [resizeDims, setResizeDims] = useState({ w: 0, h: 0 });
       const [aspectLock, setAspectLock] = useState(true);
       const [tool, setTool] = useState("arrow");
@@ -174,6 +176,23 @@
       const socialRef = useRef(null);
       const saveAsRef = useRef(null);
       const lastDrawPos = useRef(null);
+
+      // Effect to measure actual canvas scale for the zoom slider UI
+      useEffect(() => {
+        if (!image || !canvasRef.current || imageDimensions.w === 0) return;
+        const updateZoom = () => {
+          if (isFit) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            setDisplayZoom(Math.max(1, Math.round((rect.width / imageDimensions.w) * 100)));
+          } else {
+            setDisplayZoom(customZoom);
+          }
+        };
+        const id = setTimeout(updateZoom, 10);
+        const winResize = () => setTimeout(updateZoom, 10);
+        if (isFit) window.addEventListener("resize", winResize);
+        return () => { clearTimeout(id); window.removeEventListener("resize", winResize); };
+      }, [isFit, customZoom, imageDimensions, image, tool, showTextBox, socialOpen]);
 
       // Curated presets that look great on any screen (light & dark)
       const COLOR_PRESETS = [
@@ -802,7 +821,19 @@ const loadImage = useCallback((src) => {
             ),
 
             image && React.createElement(React.Fragment, null,
-              React.createElement("button", { onClick: () => setZoom(z => z === "fit" ? "100" : "fit"), style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}88`, background: "#12121F" } }, zoom === "fit" ? "🔍 100%" : "🔍 Fit"),
+              React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "0 10px 0 0", background: "#12121F", padding: "4px 12px", borderRadius: 8, border: `1px solid ${BRAND.border}` } },
+                React.createElement("input", { 
+                  type: "range", min: 10, max: 400, 
+                  value: displayZoom, 
+                  onChange: e => { setIsFit(false); setCustomZoom(parseInt(e.target.value)); },
+                  style: { width: 90, accentColor: BRAND.accent, cursor: "pointer" } 
+                }),
+                React.createElement("span", { 
+                  style: { fontSize: 12, color: BRAND.text, fontWeight: 700, width: 38, cursor: "pointer", textAlign: "right", userSelect: "none" },
+                  onClick: () => setIsFit(true),
+                  title: "Click to auto fit"
+                }, `${displayZoom}%`)
+              ),
               React.createElement("button", { onClick: undo, disabled: history.length === 0, style: btnStyle(BRAND, history.length === 0), title: "Undo (Ctrl+Z)" }, "↩ Undo"),
               React.createElement("button", { onClick: copyToClipboard, style: btnStyle(BRAND) }, "📋 Copy"),
               React.createElement("button", { onClick: () => exportImage("png"), style: btnStyle(BRAND, false, true) }, "⬇ PNG"),
@@ -939,9 +970,11 @@ const loadImage = useCallback((src) => {
                 ref: canvasRef,
                 style: { 
                   display: "block", cursor: getCursor(), boxShadow: "0 8px 40px rgba(0,0,0,0.6)", 
-                  borderRadius: 4, touchAction: "none",
-                  maxWidth: zoom === "fit" ? "100%" : "none",
-                  maxHeight: zoom === "fit" ? "calc(100vh - 120px)" : "none",
+                  borderRadius: 4, touchAction: "none", transformOrigin: "top left",
+                  maxWidth: isFit ? "100%" : "none",
+                  maxHeight: isFit ? "calc(100vh - 120px)" : "none",
+                  width: isFit ? "auto" : `${imageDimensions.w * (customZoom / 100)}px`,
+                  height: isFit ? "auto" : `${imageDimensions.h * (customZoom / 100)}px`,
                   objectFit: "contain"
                 },
                 onPointerDown: handleMouseDown, onPointerMove: handleMouseMove,
