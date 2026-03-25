@@ -1,0 +1,22 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server
+        uses: easingthemes/ssh-deploy@main
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.HETZNER_HOST }}
+          REMOTE_USER: ${{ secrets.HETZNER_USER }}
+          TARGET: "/var/www/basimp"
+          SOURCE: "."
+          EXCLUDE: "/.git/ /.github/ /node_modules/ .DS_Store"
