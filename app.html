@@ -178,7 +178,30 @@
       const [statusMsg, setStatusMsg] = useState("Paste an image or drop a file to start");
       const [showDropZone, setShowDropZone] = useState(true);
       const [fontSize, setFontSize] = useState(24);
-      const [arrowStart, setArrowStart] = useState(null);
+      
+      // Sync sliders when layer is selected
+      useEffect(() => {
+        if (selectedLayerId) {
+          const l = layers.find(x => x.id === selectedLayerId);
+          if (l) {
+            if (l.radius) setBrushSize(l.radius);
+            if (l.fontSize) setFontSize(l.fontSize);
+            if (l.color) {
+              if (l.type === "redact") setRedactColor(l.color);
+              else setDrawColor(l.color);
+            }
+          }
+        }
+      }, [selectedLayerId]);
+
+      const updateSelectedLayer = (props) => {
+        if (!selectedLayerId) return;
+        setLayers(prev => prev.map(l => l.id === selectedLayerId ? { ...l, ...props } : l));
+      };
+
+      const arrowStartRef = useRef(null);
+      const [resizeHandle, setResizeHandle] = useState(null); // Which handle of the layer is being dragged?
+      const [layerStartPos, setLayerStartPos] = useState(null); // Original coords when drag starts
       const [cropSelection, setCropSelection] = useState(null); // { x, y, w, h } in canvas coords
       const cropSelRef = useRef(null); // mirror of cropSelection — used inside getCropHandleAtPos
       const cropDragRef = useRef(null); // { mode, startX, startY, origCrop }
@@ -210,20 +233,40 @@
           drawLayer(ctx, layer);
         });
 
-        // 3. Selection Highlight
+        // 3. Selection Highlight & Handles
         if (selectedLayerId && tool === "select") {
           const l = layers.find(l => l.id === selectedLayerId);
           if (l) {
             ctx.save();
             ctx.strokeStyle = BRAND.accent; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+            let x, y, w, h;
             if (l.type === "arrow") {
               ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke();
+              // Arrow handles
+              ctx.setLineDash([]); ctx.fillStyle = "#fff";
+              [[l.x1, l.y1], [l.x2, l.y2]].forEach(([px, py]) => {
+                ctx.fillRect(px - 4, py - 4, 8, 8); ctx.strokeRect(px - 4, py - 4, 8, 8);
+              });
             } else if (l.type === "text") {
               ctx.font = `bold ${l.fontSize}px Inter`;
               const m = ctx.measureText(l.text);
-              ctx.strokeRect(l.x - 4, l.y - l.fontSize, m.width + 8, l.fontSize + 8);
+              x = l.x - 4; y = l.y - l.fontSize; w = m.width + 8; h = l.fontSize + 8;
+              ctx.strokeRect(x, y, w, h);
+            } else if (l.type === "draw") {
+              // No resize for freehand yet
             } else {
-              ctx.strokeRect(l.x - 2, l.y - 2, l.w + 4, l.h + 4);
+              x = l.x - 2; y = l.y - 2; w = l.w + 4; h = l.h + 4;
+              ctx.strokeRect(x, y, w, h);
+              // 8 Handles
+              ctx.setLineDash([]); ctx.fillStyle = "#fff";
+              const hh = [
+                [l.x, l.y], [l.x+l.w/2, l.y], [l.x+l.w, l.y],
+                [l.x, l.y+l.h/2], [l.x+l.w, l.y+l.h/2],
+                [l.x, l.y+l.h], [l.x+l.w/2, l.y+l.h], [l.x+l.w, l.y+l.h]
+              ];
+              hh.forEach(([hx, hy]) => {
+                ctx.fillRect(hx - 4, hy - 4, 8, 8); ctx.strokeRect(hx - 4, hy - 4, 8, 8);
+              });
             }
             ctx.restore();
           }
@@ -546,44 +589,79 @@
         if (!image) return;
         if (e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
         const pos = getPos(e);
-        if (tool === "text") { setTextPos(pos); setShowTextBox(true); return; }
-        if (tool === "arrow") { setArrowStart(pos); setIsDrawing(true); return; }
+        setStartPos(pos);
+        setIsDrawing(true);
+
+        if (tool === "select") {
+          const handle = getLayerHandleAtPos(pos);
+          if (handle) {
+            setResizeHandle(handle);
+            const l = layers.find(x => x.id === selectedLayerId);
+            setLayerStartPos({ ...l });
+          } else {
+            const hit = findLayerAtPos(pos);
+            if (hit) {
+              setSelectedLayerId(hit.id);
+              setLayerStartPos({ ...hit });
+              setResizeHandle(null);
+            } else {
+              setSelectedLayerId(null);
+              setIsDrawing(false);
+            }
+          }
+          return;
+        }
+
+        if (tool === "text") { 
+          setTextPos(pos); 
+          setShowTextBox(true); 
+          setIsDrawing(false); 
+          return; 
+        }
+        
+        if (tool === "arrow") { 
+          setArrowStart(pos); 
+          return; 
+        }
 
         if (tool === "crop") {
           const handle = getCropHandleAtPos(e.clientX, e.clientY);
           if (handle && cropSelRef.current) {
             cropDragRef.current = { mode: handle, startX: e.clientX, startY: e.clientY, origCrop: { ...cropSelRef.current } };
-            setIsDrawing(true);
           } else {
             setCrop(null);
             cropDragRef.current = null;
-            setIsDrawing(true);
-            setStartPos(pos);
           }
           return;
         }
-
-        if (tool === "select") {
-          const hit = findLayerAtPos(pos);
-          setSelectedLayerId(hit ? hit.id : null);
-          if (hit) {
-            setIsDrawing(true);
-            setStartPos(pos);
-            setLayerStartPos({ x: hit.x, y: hit.y, x1: hit.x1, y1: hit.y1, x2: hit.x2, y2: hit.y2 });
-          }
-          return;
-        }
-
-        setIsDrawing(true);
-        setStartPos(pos);
-        lastDrawPos.current = pos;
         
         if (tool === "draw") {
+          lastDrawPos.current = pos;
           setPreviewLayer({ id: "pw", type: "draw", points: [pos], color: drawColor, size: brushSize });
         }
       };
-
-      const [layerStartPos, setLayerStartPos] = useState(null);
+      
+      const getLayerHandleAtPos = (pos) => {
+        if (!selectedLayerId || tool !== "select") return null;
+        const l = layers.find(x => x.id === selectedLayerId);
+        if (!l) return null;
+        const H = 10; // hit area
+        if (l.type === "arrow") {
+          if (Math.abs(pos.x - l.x1) < H && Math.abs(pos.y - l.y1) < H) return "p1";
+          if (Math.abs(pos.x - l.x2) < H && Math.abs(pos.y - l.y2) < H) return "p2";
+        } else if (l.type !== "draw" && l.type !== "text") {
+          const { x, y, w, h } = l;
+          if (Math.abs(pos.x - x) < H && Math.abs(pos.y - y) < H) return "nw";
+          if (Math.abs(pos.x - (x+w)) < H && Math.abs(pos.y - y) < H) return "ne";
+          if (Math.abs(pos.x - x) < H && Math.abs(pos.y - (y+h)) < H) return "sw";
+          if (Math.abs(pos.x - (x+w)) < H && Math.abs(pos.y - (y+h)) < H) return "se";
+          if (Math.abs(pos.x - (x+w/2)) < H && Math.abs(pos.y - y) < H) return "n";
+          if (Math.abs(pos.x - (x+w/2)) < H && Math.abs(pos.y - (y+h)) < H) return "s";
+          if (Math.abs(pos.x - x) < H && Math.abs(pos.y - (y+h/2)) < H) return "w";
+          if (Math.abs(pos.x - (x+w)) < H && Math.abs(pos.y - (y+h/2)) < H) return "e";
+        }
+        return null;
+      };
 
       const findLayerAtPos = (pos) => {
         // Search from top to bottom
@@ -615,22 +693,43 @@
 
       const handleMouseMove = (e) => {
         if (!image) return;
-
-        // Update cursor when hovering over crop handles
-        if (tool === "crop" && cropSelRef.current && !isDrawing && canvasRef.current) {
-          const h = getCropHandleAtPos(e.clientX, e.clientY);
-          const cursorMap = { nw:'nw-resize',n:'n-resize',ne:'ne-resize',w:'w-resize',e:'e-resize',sw:'sw-resize',s:'s-resize',se:'se-resize',move:'move' };
-          canvasRef.current.style.cursor = cursorMap[h] || 'crosshair';
-        }
-
-        if (!isDrawing) return;
         const pos = getPos(e);
 
+        // Update cursors when NOT drawing
+        if (!isDrawing) {
+          if (tool === "select") {
+            const handle = getLayerHandleAtPos(pos);
+            const cursorMap = { nw:'nw-resize', n:'n-resize', ne:'ne-resize', w:'w-resize', e:'e-resize', sw:'sw-resize', s:'s-resize', se:'se-resize', p1:'move', p2:'move' };
+            canvasRef.current.style.cursor = handle ? cursorMap[handle] : findLayerAtPos(pos) ? "move" : "default";
+          }
+          if (tool === "crop" && cropSelRef.current) {
+             const h = getCropHandleAtPos(e.clientX, e.clientY);
+             const cursorMap = { nw:'nw-resize',n:'n-resize',ne:'ne-resize',w:'w-resize',e:'e-resize',sw:'sw-resize',s:'s-resize',se:'se-resize',move:'move' };
+             canvasRef.current.style.cursor = cursorMap[h] || 'crosshair';
+          }
+          return;
+        }
+
+        // --- DRAWING / DRAGGING LOGIC ---
         if (tool === "select" && selectedLayerId) {
           const dx = pos.x - startPos.x;
           const dy = pos.y - startPos.y;
           setLayers(prev => prev.map(l => {
             if (l.id === selectedLayerId) {
+              if (resizeHandle) {
+                const nl = { ...l };
+                if (l.type === "arrow") {
+                  if (resizeHandle === "p1") { nl.x1 = pos.x; nl.y1 = pos.y; }
+                  if (resizeHandle === "p2") { nl.x2 = pos.x; nl.y2 = pos.y; }
+                } else {
+                  if (resizeHandle.includes("w")) { nl.x = pos.x; nl.w = layerStartPos.w - (pos.x - layerStartPos.x); }
+                  if (resizeHandle.includes("e")) { nl.w = layerStartPos.w + (pos.x - layerStartPos.x); }
+                  if (resizeHandle.includes("n")) { nl.y = pos.y; nl.h = layerStartPos.h - (pos.y - layerStartPos.y); }
+                  if (resizeHandle.includes("s")) { nl.h = layerStartPos.h + (pos.y - layerStartPos.y); }
+                }
+                return nl;
+              }
+              // Normal move
               if (l.type === "arrow") {
                 return { ...l, x1: layerStartPos.x1 + dx, y1: layerStartPos.y1 + dy, x2: layerStartPos.x2 + dx, y2: layerStartPos.y2 + dy };
               }
@@ -661,11 +760,10 @@
           setPreviewLayer({ id: "pw", type: "arrow", x1: startPos.x, y1: startPos.y, x2: pos.x, y2: pos.y, color: drawColor, size: brushSize/8+2, style: arrowStyle });
         }
 
-        // Keep old dash logic for crop tool only
         if (tool === "crop") {
           const canvas = canvasRef.current;
+          const rect = canvas.getBoundingClientRect();
           if (cropDragRef.current) {
-            const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
             const dx = (e.clientX - cropDragRef.current.startX) * scaleX;
@@ -1276,18 +1374,30 @@
 
             ["blur","pixelate","draw","arrow"].includes(tool) && React.createElement("div", null,
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `${tool === "blur" ? "Blur Radius" : tool === "pixelate" ? "Block Size" : "Size"} — ${brushSize}`),
-              React.createElement("input", { type: "range", min: tool === "pixelate" ? 4 : tool === "blur" ? 4 : 2, max: 40, value: brushSize, onChange: e => setBrushSize(Number(e.target.value)), style: { width: "100%", accentColor: BRAND.accent } })
+              React.createElement("input", { 
+                type: "range", min: tool === "pixelate" ? 4 : tool === "blur" ? 4 : 2, max: 40, value: brushSize, 
+                onChange: e => { const v = Number(e.target.value); setBrushSize(v); updateSelectedLayer({ radius: v, size: v }); }, 
+                style: { width: "100%", accentColor: BRAND.accent } 
+              })
             ),
 
             tool === "text" && React.createElement("div", null,
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
-              React.createElement("input", { type: "range", min: 12, max: 96, value: fontSize, onChange: e => setFontSize(Number(e.target.value)), style: { width: "100%", accentColor: BRAND.accent } })
+              React.createElement("input", { 
+                type: "range", min: 12, max: 96, value: fontSize, 
+                onChange: e => { const v = Number(e.target.value); setFontSize(v); updateSelectedLayer({ fontSize: v }); }, 
+                style: { width: "100%", accentColor: BRAND.accent } 
+              })
             ),
 
             tool === "redact" && React.createElement("div", null,
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Redact Color"),
               React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
-                REDACT_COLORS.map(c => React.createElement("div", { key: c, onClick: () => setRedactColor(c), style: { width: 28, height: 28, borderRadius: 6, background: c, border: redactColor === c ? `2px solid ${BRAND.accent}` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer" } }))
+                REDACT_COLORS.map(c => React.createElement("div", { 
+                  key: c, 
+                  onClick: () => { setRedactColor(c); updateSelectedLayer({ color: c }); }, 
+                  style: { width: 28, height: 28, borderRadius: 6, background: c, border: redactColor === c ? `2px solid ${BRAND.accent}` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer" } 
+                }))
               )
             ),
 
@@ -1295,10 +1405,18 @@
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Color"),
               React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 } },
                 COLOR_PRESETS.map(c =>
-                  React.createElement("div", { key: c, onClick: () => setDrawColor(c), style: { width: 22, height: 22, borderRadius: 5, background: c, border: drawColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: drawColor === c ? "scale(1.2)" : "scale(1)" } })
+                  React.createElement("div", { 
+                    key: c, 
+                    onClick: () => { setDrawColor(c); updateSelectedLayer({ color: c }); }, 
+                    style: { width: 22, height: 22, borderRadius: 5, background: c, border: drawColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: drawColor === c ? "scale(1.2)" : "scale(1)" } 
+                  })
                 )
               ),
-              React.createElement("input", { type: "color", value: drawColor, onChange: e => setDrawColor(e.target.value), style: { width: "100%", height: 28, borderRadius: 6, border: `1px solid ${BRAND.border}`, cursor: "pointer" } })
+              React.createElement("input", { 
+                type: "color", value: drawColor, 
+                onChange: e => { setDrawColor(e.target.value); updateSelectedLayer({ color: e.target.value }); }, 
+                style: { width: "100%", height: 28, borderRadius: 6, border: `1px solid ${BRAND.border}`, cursor: "pointer" } 
+              })
             ),
 
             React.createElement("div", { style: { marginTop: "auto", paddingTop: 16, borderTop: `1px solid ${BRAND.border}` } },
