@@ -47,7 +47,7 @@
     ];
 
     const REDACT_COLORS = ["#000000", "#1A1A2E", "#FF4757", "#FFFFFF", "#FFD700"];
-    const toolColors = { redact: "#FF4757", blur: "#6C63FF", pixelate: "#F39C12", crop: "#2ECC71", arrow: "#FF4757", text: "#00BCD4", draw: "#FF9FF3", resize: "#6C63FF" };
+    const toolColors = { select: "#6C63FF", redact: "#FF4757", blur: "#6C63FF", pixelate: "#F39C12", crop: "#2ECC71", arrow: "#FF4757", text: "#00BCD4", draw: "#FF9FF3", resize: "#6C63FF" };
 
     // ── Social media canvas presets ───────────────────────────────────────────
     const SOCIALS = [
@@ -304,6 +304,8 @@
             layer.points.forEach(p => ctx.lineTo(p.x, p.y));
             ctx.stroke();
           }
+        } else if (layer.type === "image" && layer.img) {
+          ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
         }
         ctx.restore();
       };
@@ -375,7 +377,33 @@
         }
       }, [history]);
 
+      const addLayerImage = (src) => {
+        const img = new Image();
+        img.src = src;
+        img.onload = () => {
+          const canvas = canvasRef.current;
+          let w = img.width, h = img.height;
+          // Scale down if larger than canvas
+          const maxW = canvas.width * 0.8, maxH = canvas.height * 0.8;
+          if (w > maxW || h > maxH) {
+            const ratio = Math.min(maxW / w, maxH / h);
+            w *= ratio; h *= ratio;
+          }
+          const newLayer = { 
+            id: Date.now(), type: "image", img, src, 
+            x: (canvas.width - w) / 2, y: (canvas.height - h) / 2, w: Math.round(w), h: Math.round(h),
+            ratio: img.width / img.imgHeight || (img.width / img.height) 
+          };
+          saveHistory();
+          setLayers(prev => [...prev, newLayer]);
+          setSelectedLayerId(newLayer.id);
+          setTool("select");
+          status(`+ Image layer added: ${Math.round(w)}×${Math.round(h)}px`);
+        };
+      };
+
       const loadImage = (src) => {
+        if (image) { addLayerImage(src); return; }
         const img = new Image();
         img.src = src;
         img.onload = () => {
@@ -383,11 +411,11 @@
           setImageDimensions({ w, h });
           setResizeDims({ w, h });
           const canvas = canvasRef.current;
-          canvas.width = w; canvas.height = h;
+          if (canvas) { canvas.width = w; canvas.height = h; }
           setBaseImage(img);
-          setLayers([]); // Reset layers on new image load
+          setLayers([]);
           setShowDropZone(false);
-          setImage(src); // dataURL for serialization if needed, though we use baseImage for drawing
+          setImage(src);
           status(`🖼 Image loaded: ${w}×${h}px`);
         };
       };
@@ -414,6 +442,7 @@
         const handleKey = (e) => {
           if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
           if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); return; }
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") { e.preventDefault(); setTool("select"); status("Select tool active (Ctrl+T)"); return; }
           const t = TOOLS.find(t => t.shortcut === e.key.toUpperCase());
           if (t) setTool(t.id);
         };
@@ -678,6 +707,8 @@
           } else if (l.type === "arrow") {
             const dist = distToSegment(pos, { x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
             if (dist < 20) return l;
+          } else if (l.type === "image") {
+            if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) return l;
           }
         }
         return null;
@@ -728,6 +759,16 @@
                   if (resizeHandle.includes("e")) { nl.w = Math.max(10, layerStartPos.w + dx); }
                   if (resizeHandle.includes("n")) { nl.y = layerStartPos.y + dy; nl.h = Math.max(10, layerStartPos.h - dy); }
                   if (resizeHandle.includes("s")) { nl.h = Math.max(10, layerStartPos.h + dy); }
+                  
+                  // Aspect Ratio Lock (Shift key)
+                  if (e.shiftKey && (nl.type === "image" || nl.type === "text")) {
+                    const r = layerStartPos.ratio || (layerStartPos.w / layerStartPos.h);
+                    if (resizeHandle.length === 2) { // corners
+                      if (nl.w / nl.h > r) nl.w = nl.h * r; else nl.h = nl.w / r;
+                      if (resizeHandle.includes("w")) nl.x = layerStartPos.x + (layerStartPos.w - nl.w);
+                      if (resizeHandle.includes("n")) nl.y = layerStartPos.y + (layerStartPos.h - nl.h);
+                    }
+                  }
                 }
                 return nl;
               }
