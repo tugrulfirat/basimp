@@ -156,8 +156,19 @@
       const [image, setImage] = useState(null);
       const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
       const [isFit, setIsFit] = useState(true);
-      const [customZoom, setCustomZoom] = useState(100);
       const [displayZoom, setDisplayZoom] = useState(100);
+      const [customZoom, setCustomZoom] = useState(100);
+      
+      const imageCache = useRef(new Map());
+      const getCachedImage = useCallback((src) => {
+        if (!src) return null;
+        if (imageCache.current.has(src)) return imageCache.current.get(src);
+        const img = new Image();
+        img.src = src;
+        img.onload = () => renderAll();
+        imageCache.current.set(src, img);
+        return img;
+      }, []);
       const [resizeDims, setResizeDims] = useState({ w: 0, h: 0 });
       const [aspectLock, setAspectLock] = useState(true);
       const [tool, setTool] = useState("arrow");
@@ -304,8 +315,11 @@
             layer.points.forEach(p => ctx.lineTo(p.x, p.y));
             ctx.stroke();
           }
-        } else if (layer.type === "image" && layer.img) {
-          ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        } else if (layer.type === "image" && layer.src) {
+          const img = (layer.img instanceof HTMLImageElement) ? layer.img : getCachedImage(layer.src);
+          if (img && img.complete && img.naturalWidth !== 0) {
+            ctx.drawImage(img, layer.x, layer.y, layer.w, layer.h);
+          }
         }
         ctx.restore();
       };
