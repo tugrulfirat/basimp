@@ -35,14 +35,15 @@
     };
 
     const TOOLS = [
-      { id: "resize",   icon: "⤡",  label: "Resize",    shortcut: "S" },
-      { id: "redact",   icon: "▬",  label: "Redact",    shortcut: "R" },
-      { id: "blur",     icon: "◈",  label: "Blur",      shortcut: "B" },
-      { id: "pixelate", icon: "⊞",  label: "Pixelate",  shortcut: "P" },
-      { id: "crop",     icon: "⊡",  label: "Crop",      shortcut: "C" },
-      { id: "arrow",    icon: "↗",  label: "Arrow",     shortcut: "A" },
-      { id: "text",     icon: "T",  label: "Text",      shortcut: "T" },
-      { id: "draw",     icon: "✏",  label: "Draw",      shortcut: "D" },
+      { id: "select", icon: "➚", label: "Select", shortcut: "V" },
+      { id: "redact", icon: "▬", label: "Redact", shortcut: "R" },
+      { id: "blur", icon: "◈", label: "Blur", shortcut: "B" },
+      { id: "pixelate", icon: "⊞", label: "Pixelate", shortcut: "P" },
+      { id: "crop", icon: "⊡", label: "Crop", shortcut: "C" },
+      { id: "resize", icon: "⤡", label: "Resize", shortcut: "S" },
+      { id: "arrow", icon: "↗", label: "Arrow", shortcut: "A" },
+      { id: "text", icon: "T", label: "Text", shortcut: "T" },
+      { id: "draw", icon: "✎", label: "Draw", shortcut: "D" },
     ];
 
     const REDACT_COLORS = ["#000000", "#1A1A2E", "#FF4757", "#FFFFFF", "#FFD700"];
@@ -160,6 +161,10 @@
       const [resizeDims, setResizeDims] = useState({ w: 0, h: 0 });
       const [aspectLock, setAspectLock] = useState(true);
       const [tool, setTool] = useState("arrow");
+      const [layers, setLayers] = useState([]); // [{id, type, x, y, w, h, ...}]
+      const [previewLayer, setPreviewLayer] = useState(null);
+      const [selectedLayerId, setSelectedLayerId] = useState(null);
+      const [baseImage, setBaseImage] = useState(null); // HTMLImageElement — the source image
       const [arrowStyle, setArrowStyle] = useState("classic");
       const [isDrawing, setIsDrawing] = useState(false);
       const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -184,9 +189,85 @@
       const saveAsRef = useRef(null);
       const lastDrawPos = useRef(null);
 
+      // Core Composition Engine
+      const renderAll = useCallback(() => {
+        if (!canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        
+        // 1. Clear and Draw Base
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (baseImage) {
+          ctx.drawImage(baseImage, 0, 0);
+        } else {
+          // If no base image but we have dimensions, clear to transparent/checkerboard handled by CSS
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // 2. Draw Layers in order
+        const allLayers = [...layers, ...(previewLayer ? [previewLayer] : [])];
+        allLayers.forEach(layer => {
+          drawLayer(ctx, layer);
+        });
+
+        // 3. Selection Highlight
+        if (selectedLayerId && tool === "select") {
+          const l = layers.find(l => l.id === selectedLayerId);
+          if (l) {
+            ctx.save();
+            ctx.strokeStyle = BRAND.accent; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+            if (l.type === "arrow") {
+              ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke();
+            } else if (l.type === "text") {
+              ctx.font = `bold ${l.fontSize}px Inter`;
+              const m = ctx.measureText(l.text);
+              ctx.strokeRect(l.x - 4, l.y - l.fontSize, m.width + 8, l.fontSize + 8);
+            } else {
+              ctx.strokeRect(l.x - 2, l.y - 2, l.w + 4, l.h + 4);
+            }
+            ctx.restore();
+          }
+        }
+      }, [baseImage, layers, previewLayer, selectedLayerId, tool]);
+
+      // Effect to trigger redraw
+      useEffect(() => {
+        renderAll();
+      }, [renderAll]);
+
+      const drawLayer = (ctx, layer) => {
+        ctx.save();
+        if (layer.type === "redact") {
+          ctx.fillStyle = layer.color || "#000";
+          ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+        } else if (layer.type === "blur") {
+          applyBlur(ctx, layer.x, layer.y, layer.w, layer.h, layer.radius);
+        } else if (layer.type === "pixelate") {
+          applyPixelate(ctx, layer.x, layer.y, layer.w, layer.h, layer.radius);
+        } else if (layer.type === "arrow") {
+          drawArrowOnCanvas(ctx, layer.x1, layer.y1, layer.x2, layer.y2, layer.color, layer.size, layer.style);
+        } else if (layer.type === "text") {
+          ctx.font = `bold ${layer.fontSize}px Inter, Helvetica Neue, sans-serif`;
+          ctx.fillStyle = layer.color;
+          ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
+          ctx.fillText(layer.text, layer.x, layer.y);
+        } else if (layer.type === "draw") {
+          if (layer.points && layer.points.length > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = layer.color;
+            ctx.lineWidth = layer.size;
+            ctx.lineCap = "round"; ctx.lineJoin = "round";
+            ctx.moveTo(layer.points[0].x, layer.points[0].y);
+            layer.points.forEach(p => ctx.lineTo(p.x, p.y));
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      };
+
       // Effect to measure actual canvas scale for the zoom slider UI
       useEffect(() => {
-        if (!image || !canvasRef.current || imageDimensions.w === 0) return;
+        if (!canvasRef.current || imageDimensions.w === 0) return;
         const updateZoom = () => {
           if (isFit) {
             const rect = canvasRef.current.getBoundingClientRect();
@@ -199,7 +280,7 @@
         const winResize = () => setTimeout(updateZoom, 10);
         if (isFit) window.addEventListener("resize", winResize);
         return () => { clearTimeout(id); window.removeEventListener("resize", winResize); };
-      }, [isFit, customZoom, imageDimensions, image, tool, showTextBox, socialOpen]);
+      }, [isFit, customZoom, imageDimensions, tool, layers, previewLayer]);
 
       // Global hotkeys (Enter/Esc) for Apply/Cancel
       useEffect(() => {
@@ -235,48 +316,38 @@
       };
 
       const saveHistory = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const dataURL = canvas.toDataURL();
-        setHistory(h => [...h.slice(-19), dataURL]);
-      }, []);
+        setHistory(h => [...h.slice(-19), JSON.stringify(layers)]);
+      }, [layers]);
 
       const undo = useCallback(() => {
         if (history.length === 0) return;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
         const last = history[history.length - 1];
-        setHistory(h => h.slice(0, -1));
-        const img = new Image();
-        img.onload = () => {
-          canvas.width = img.width;
-          canvas.height = img.height;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
-          setImageDimensions({ w: img.width, h: img.height });
-          setResizeDims({ w: img.width, h: img.height });
-        };
-        img.src = last;
-        status("Undone ↩");
+        try {
+          const prevLayers = JSON.parse(last);
+          setLayers(prevLayers);
+          setHistory(h => h.slice(0, -1));
+          status("↩ Undo applied");
+        } catch(e) {
+          console.error("Undo failed", e);
+        }
       }, [history]);
 
-const loadImage = useCallback((src) => {
+      const loadImage = (src) => {
         const img = new Image();
+        img.src = src;
         img.onload = () => {
-          let w = img.width, h = img.height;
-          // Native resolution preservation
-          const canvas = canvasRef.current;
-          canvas.width = w; canvas.height = h;
-          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          const w = img.width, h = img.height;
           setImageDimensions({ w, h });
           setResizeDims({ w, h });
-          setImage(src);
+          const canvas = canvasRef.current;
+          canvas.width = w; canvas.height = h;
+          setBaseImage(img);
+          setLayers([]); // Reset layers on new image load
           setShowDropZone(false);
-          setHistory([]);
-          status(`✓ Loaded ${img.width}×${img.height}px`, 3000);
+          setImage(src); // dataURL for serialization if needed, though we use baseImage for drawing
+          status(`🖼 Image loaded: ${w}×${h}px`);
         };
-        img.src = src;
-      }, []);
+      };
 
       useEffect(() => {
         const handlePaste = (e) => {
@@ -336,29 +407,31 @@ const loadImage = useCallback((src) => {
       };
 
       const applyBlur = (ctx, x, y, w, h, radius = 10) => {
-        for (let i = 0; i < 3; i++) {
-          ctx.save();
-          ctx.filter = `blur(${radius}px)`;
-          const d = ctx.getImageData(x, y, w, h);
-          const o = document.createElement("canvas");
-          o.width = w; o.height = h;
-          o.getContext("2d").putImageData(d, 0, 0);
-          ctx.drawImage(o, x, y);
-          ctx.restore();
-        }
+        const sw = Math.floor(w), sh = Math.floor(h);
+        if (sw <= 0 || sh <= 0) return;
+        ctx.save();
+        ctx.filter = `blur(${radius}px)`;
+        const d = ctx.getImageData(x, y, sw, sh);
+        const o = document.createElement("canvas");
+        o.width = sw; o.height = sh;
+        o.getContext("2d").putImageData(d, 0, 0);
+        ctx.drawImage(o, x, y);
+        ctx.restore();
       };
 
       const applyPixelate = (ctx, x, y, w, h, blockSize = 12) => {
-        const imageData = ctx.getImageData(x, y, w, h);
-        const d = imageData.data;
-        for (let py = 0; py < h; py += blockSize) {
-          for (let px = 0; px < w; px += blockSize) {
-            const i = (py * w + px) * 4;
-            const r = d[i], g = d[i+1], b = d[i+2], a = d[i+3];
-            for (let fy = 0; fy < blockSize && py + fy < h; fy++) {
-              for (let fx = 0; fx < blockSize && px + fx < w; fx++) {
-                const j = ((py + fy) * w + (px + fx)) * 4;
-                d[j] = r; d[j+1] = g; d[j+2] = b; d[j+3] = a;
+        const sw = Math.floor(w), sh = Math.floor(h);
+        if (sw <= 0 || sh <= 0) return;
+        const imageData = ctx.getImageData(x, y, sw, sh);
+        const { data, width, height } = imageData;
+        for (let py = 0; py < height; py += blockSize) {
+          for (let px = 0; px < width; px += blockSize) {
+            const i = (py * width + px) * 4;
+            const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+            for (let fy = 0; fy < blockSize && py + fy < height; fy++) {
+              for (let fx = 0; fx < blockSize && px + fx < width; fx++) {
+                const j = ((py + fy) * width + (px + fx)) * 4;
+                data[j] = r; data[j+1] = g; data[j+2] = b; data[j+3] = a;
               }
             }
           }
@@ -424,7 +497,7 @@ const loadImage = useCallback((src) => {
           ctx.setLineDash([]);
           ctx.beginPath(); ctx.moveTo(x2, y2);
           ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/7), y2 - headLen * Math.sin(angle - Math.PI/7));
-          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - headLen * Math.sin(angle + Math.PI/7));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - Math.sin(angle + Math.PI/7));
           ctx.closePath(); ctx.fill();
         } else {
           ctx.lineWidth = size + 1;
@@ -432,7 +505,7 @@ const loadImage = useCallback((src) => {
           ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(x2, y2);
           ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/7), y2 - headLen * Math.sin(angle - Math.PI/7));
-          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - headLen * Math.sin(angle + Math.PI/7));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/7), y2 - Math.sin(angle + Math.PI/7));
           ctx.closePath(); ctx.fill();
         }
         ctx.restore();
@@ -490,15 +563,54 @@ const loadImage = useCallback((src) => {
           return;
         }
 
-        saveHistory();
+        if (tool === "select") {
+          const hit = findLayerAtPos(pos);
+          setSelectedLayerId(hit ? hit.id : null);
+          if (hit) {
+            setIsDrawing(true);
+            setStartPos(pos);
+            setLayerStartPos({ x: hit.x, y: hit.y, x1: hit.x1, y1: hit.y1, x2: hit.x2, y2: hit.y2 });
+          }
+          return;
+        }
+
         setIsDrawing(true);
         setStartPos(pos);
         lastDrawPos.current = pos;
+        
         if (tool === "draw") {
-          const ctx = canvasRef.current.getContext("2d");
-          ctx.beginPath(); ctx.arc(pos.x, pos.y, brushSize/2, 0, Math.PI*2);
-          ctx.fillStyle = drawColor; ctx.fill();
+          setPreviewLayer({ id: "pw", type: "draw", points: [pos], color: drawColor, size: brushSize });
         }
+      };
+
+      const [layerStartPos, setLayerStartPos] = useState(null);
+
+      const findLayerAtPos = (pos) => {
+        // Search from top to bottom
+        for (let i = layers.length - 1; i >= 0; i--) {
+          const l = layers[i];
+          if (l.type === "redact" || l.type === "blur" || l.type === "pixelate") {
+            if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) return l;
+          } else if (l.type === "text") {
+            const ctx = canvasRef.current.getContext("2d");
+            ctx.font = `bold ${l.fontSize}px Inter`;
+            const m = ctx.measureText(l.text);
+            const th = l.fontSize;
+            if (pos.x >= l.x && pos.x <= l.x + m.width && pos.y >= l.y - th && pos.y <= l.y) return l;
+          } else if (l.type === "arrow") {
+            const dist = distToSegment(pos, { x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
+            if (dist < 20) return l;
+          }
+        }
+        return null;
+      };
+
+      const distToSegment = (p, v, w) => {
+        const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+        if (l2 === 0) return Math.sqrt((p.x - v.x)**2 + (p.y - v.y)**2);
+        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.sqrt((p.x - (v.x + t * (w.x - v.x)))**2 + (p.y - (v.y + t * (w.y - v.y)))**2);
       };
 
       const handleMouseMove = (e) => {
@@ -514,16 +626,42 @@ const loadImage = useCallback((src) => {
         if (!isDrawing) return;
         const pos = getPos(e);
 
+        if (tool === "select" && selectedLayerId) {
+          const dx = pos.x - startPos.x;
+          const dy = pos.y - startPos.y;
+          setLayers(prev => prev.map(l => {
+            if (l.id === selectedLayerId) {
+              if (l.type === "arrow") {
+                return { ...l, x1: layerStartPos.x1 + dx, y1: layerStartPos.y1 + dy, x2: layerStartPos.x2 + dx, y2: layerStartPos.y2 + dy };
+              }
+              return { ...l, x: layerStartPos.x + dx, y: layerStartPos.y + dy };
+            }
+            return l;
+          }));
+          return;
+        }
+
         if (tool === "draw") {
-          const ctx = canvasRef.current.getContext("2d");
-          ctx.beginPath(); ctx.moveTo(lastDrawPos.current.x, lastDrawPos.current.y);
-          ctx.lineTo(pos.x, pos.y);
-          ctx.strokeStyle = drawColor; ctx.lineWidth = brushSize;
-          ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
+          setPreviewLayer(prev => ({ ...prev, points: [...prev.points, pos] }));
           lastDrawPos.current = pos;
           return;
         }
 
+        if (["redact","blur","pixelate"].includes(tool)) {
+          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
+          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
+          if (w > 0 && h > 0) {
+            setPreviewLayer({ id: "pw", type: tool, x, y, w, h, color: redactColor, radius: brushSize });
+          } else {
+            setPreviewLayer(null);
+          }
+        }
+
+        if (tool === "arrow") {
+          setPreviewLayer({ id: "pw", type: "arrow", x1: startPos.x, y1: startPos.y, x2: pos.x, y2: pos.y, color: drawColor, size: brushSize/8+2, style: arrowStyle });
+        }
+
+        // Keep old dash logic for crop tool only
         if (tool === "crop") {
           const canvas = canvasRef.current;
           if (cropDragRef.current) {
@@ -581,6 +719,12 @@ const loadImage = useCallback((src) => {
         }
         if (!image) { setIsDrawing(false); return; }
         if (overlayRef.current) overlayRef.current.style.display = "none";
+        
+        if (tool === "select") {
+          if (isDrawing) saveHistory();
+          setIsDrawing(false);
+          return;
+        }
 
         if (tool === "crop") {
           cropDragRef.current = null;
@@ -594,30 +738,12 @@ const loadImage = useCallback((src) => {
         }
 
         if (!isDrawing) { setIsDrawing(false); return; }
-        const pos = getPos(e);
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
-
-        if (tool === "arrow" && arrowStart) {
+        
+        if (previewLayer) {
           saveHistory();
-          drawArrowOnCanvas(ctx, arrowStart.x, arrowStart.y, pos.x, pos.y, drawColor, brushSize/8+2, arrowStyle);
-          setArrowStart(null);
-          status(`↗ Arrow drawn (${arrowStyle})`);
-        }
-        if (tool === "redact") {
-          const x = Math.min(startPos.x, pos.x), y = Math.min(startPos.y, pos.y);
-          const w = Math.abs(pos.x - startPos.x), h = Math.abs(pos.y - startPos.y);
-          if (w > 2 && h > 2) { ctx.fillStyle = redactColor; ctx.fillRect(x, y, w, h); status("▬ Redacted"); }
-        }
-        if (tool === "blur") {
-          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
-          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
-          if (w > 4 && h > 4) { applyBlur(ctx, x, y, w, h, brushSize); status("◈ Blurred"); }
-        }
-        if (tool === "pixelate") {
-          const x = Math.floor(Math.min(startPos.x, pos.x)), y = Math.floor(Math.min(startPos.y, pos.y));
-          const w = Math.floor(Math.abs(pos.x - startPos.x)), h = Math.floor(Math.abs(pos.y - startPos.y));
-          if (w > 4 && h > 4) { applyPixelate(ctx, x, y, w, h, brushSize); status("⊞ Pixelated"); }
+          setLayers(prev => [...prev, { ...previewLayer, id: Date.now() }]);
+          setPreviewLayer(null);
+          status(`+ Layer added: ${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
         }
         setIsDrawing(false);
       };
@@ -625,15 +751,18 @@ const loadImage = useCallback((src) => {
       const commitText = () => {
         if (!textInput.trim() || !textPos) { setShowTextBox(false); return; }
         saveHistory();
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
-        ctx.font = `bold ${fontSize}px Inter, Helvetica Neue, sans-serif`;
-        ctx.fillStyle = drawColor;
-        ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
-        ctx.fillText(textInput, textPos.x, textPos.y);
-        ctx.shadowBlur = 0;
+        const newLayer = {
+          id: Date.now(),
+          type: "text",
+          x: textPos.x,
+          y: textPos.y,
+          text: textInput,
+          color: drawColor,
+          fontSize: fontSize
+        };
+        setLayers(prev => [...prev, newLayer]);
         setTextInput(""); setShowTextBox(false); setTextPos(null);
-        status("T Text added");
+        status("T Text added as layer");
       };
 
       const exportImage = (format = "png") => {
@@ -659,26 +788,44 @@ const loadImage = useCallback((src) => {
 
       const applyCrop = (e) => {
         if (e) { e.preventDefault(); e.stopPropagation(); }
-        // Read directly from ref — never stale
         const sel = cropSelRef.current;
         if (!sel || sel.w < 2 || sel.h < 2) { status("No crop selection"); return; }
         const { x, y, w, h } = sel;
         const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
-        // Clamp to canvas bounds to avoid out-of-bounds getImageData
+        
         const cx = Math.max(0, Math.round(x));
         const cy = Math.max(0, Math.round(y));
         const cw = Math.min(Math.round(w), canvas.width - cx);
         const ch = Math.min(Math.round(h), canvas.height - cy);
         if (cw < 2 || ch < 2) { status("Crop area too small"); return; }
+        
         saveHistory();
-        const imageData = ctx.getImageData(cx, cy, cw, ch);
-        canvas.width = cw; canvas.height = ch;
-        ctx.putImageData(imageData, 0, 0);
-        setImageDimensions({ w: cw, h: ch });
-        setResizeDims({ w: cw, h: ch });
-        setCrop(null);
-        status("⊡ Cropped ✓");
+
+        // 1. Crop Base Image
+        const off = document.createElement("canvas");
+        off.width = cw; off.height = ch;
+        const offCtx = off.getContext("2d");
+        offCtx.drawImage(baseImage, cx, cy, cw, ch, 0, 0, cw, ch);
+        const newSrc = off.toDataURL();
+        const newImg = new Image();
+        newImg.src = newSrc;
+        newImg.onload = () => {
+          setBaseImage(newImg);
+          setImage(newSrc);
+          
+          // 2. Shift all layers
+          setLayers(prev => prev.map(l => {
+            if (l.type === "arrow") return { ...l, x1: l.x1 - cx, y1: l.y1 - cy, x2: l.x2 - cx, y2: l.y2 - cy };
+            if (l.type === "draw") return { ...l, points: l.points.map(p => ({ x: p.x - cx, y: p.y - cy })) };
+            return { ...l, x: l.x - cx, y: l.y - cy };
+          }));
+
+          canvas.width = cw; canvas.height = ch;
+          setImageDimensions({ w: cw, h: ch });
+          setResizeDims({ w: cw, h: ch });
+          setCrop(null);
+          status("⊡ Cropped (Layers Shifted) ✓");
+        };
       };
 
       const handleResizeChange = (field, val) => {
@@ -696,19 +843,45 @@ const loadImage = useCallback((src) => {
         const w = parseInt(resizeDims.w);
         const h = parseInt(resizeDims.h);
         if (isNaN(w) || isNaN(h) || w < 2 || h < 2) { status("Invalid resize dimensions"); return; }
+        
+        const sw = w / imageDimensions.w;
+        const sh = h / imageDimensions.h;
+
         saveHistory();
-        const mainCanvas = canvasRef.current;
-        const mainCtx = mainCanvas.getContext("2d");
+        
+        // 1. Resize Base Image
         const off = document.createElement("canvas");
         off.width = w; off.height = h;
         const offCtx = off.getContext("2d");
-        offCtx.drawImage(mainCanvas, 0, 0, w, h);
-        mainCanvas.width = w; mainCanvas.height = h;
-        mainCtx.clearRect(0, 0, w, h);
-        mainCtx.drawImage(off, 0, 0);
-        setImageDimensions({ w, h });
-        status(`⤡ Resized to ${w}×${h}px`);
-        selectTool("arrow"); // switch back cleanly
+        offCtx.drawImage(baseImage, 0, 0, w, h);
+        const newSrc = off.toDataURL();
+        const newImg = new Image();
+        newImg.src = newSrc;
+        newImg.onload = () => {
+          setBaseImage(newImg);
+          setImage(newSrc);
+
+          // 2. Scale all layers
+          setLayers(prev => prev.map(l => {
+            if (l.type === "arrow") {
+              return { ...l, x1: l.x1 * sw, y1: l.y1 * sh, x2: l.x2 * sw, y2: l.y2 * sh, size: l.size * sw };
+            }
+            if (l.type === "draw") {
+              return { ...l, points: l.points.map(p => ({ x: p.x * sw, y: p.y * sh })), size: (l.size || 5) * sw };
+            }
+            if (l.type === "text") {
+              return { ...l, x: l.x * sw, y: l.y * sh, fontSize: l.fontSize * sw };
+            }
+            // Rect tools (blur, redact, pixelate)
+            return { ...l, x: l.x * sw, y: l.y * sh, w: l.w * sw, h: l.h * sh, radius: (l.radius || 10) * sw };
+          }));
+
+          const canvas = canvasRef.current;
+          canvas.width = w; canvas.height = h;
+          setImageDimensions({ w, h });
+          status(`⤡ Resized (Layers Scaled) to ${w}×${h}px`);
+          selectTool("select"); 
+        };
       };
 
       const cancelCrop = () => {
@@ -1132,6 +1305,42 @@ const loadImage = useCallback((src) => {
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Canvas"),
               React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted } }, `${imageDimensions.w} × ${imageDimensions.h}px`),
               React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted, marginTop: 4 } }, `${history.length} edit${history.length !== 1 ? "s" : ""}`)
+            ),
+
+            // LAYER LIST (Photopea style)
+            layers.length > 0 && React.createElement("div", { style: { borderTop: `1px solid ${BRAND.border}`, paddingTop: 16 } },
+              React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: BRAND.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, display: "flex", justifyContent: "space-between" } }, 
+                "Layers",
+                React.createElement("span", { style: { color: BRAND.accent } }, layers.length)
+              ),
+              React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto", paddingRight: 4 } },
+                layers.map((l, idx) => 
+                  React.createElement("div", {
+                    key: l.id,
+                    onClick: () => { setSelectedLayerId(l.id); setTool("select"); },
+                    style: { 
+                      padding: "8px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 10,
+                      background: selectedLayerId === l.id ? `${BRAND.accent}22` : "transparent",
+                      border: `1px solid ${selectedLayerId === l.id ? BRAND.accent : "transparent"}`
+                    },
+                    onMouseEnter: e => { if (selectedLayerId !== l.id) e.currentTarget.style.background = BRAND.surfaceHover; },
+                    onMouseLeave: e => { if (selectedLayerId !== l.id) e.currentTarget.style.background = "transparent"; }
+                  },
+                    React.createElement("span", { style: { opacity: 0.5, fontSize: 10, width: 14 } }, layers.length - idx),
+                    React.createElement("span", { style: { fontSize: 14 } }, 
+                      l.type === "blur" ? "◈" : l.type === "pixelate" ? "⊞" : l.type === "redact" ? "▬" : l.type === "arrow" ? "↗" : l.type === "text" ? "T" : "✎"
+                    ),
+                    React.createElement("div", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: selectedLayerId === l.id ? 700 : 500, color: selectedLayerId === l.id ? BRAND.text : BRAND.textMuted } }, 
+                      l.type.charAt(0).toUpperCase() + l.type.slice(1),
+                      l.text ? `: ${l.text}` : ""
+                    ),
+                    React.createElement("button", { 
+                      onClick: (e) => { e.stopPropagation(); saveHistory(); setLayers(prev => prev.filter(x => x.id !== l.id)); setSelectedLayerId(null); },
+                      style: { background: "transparent", border: "none", color: BRAND.textMuted, cursor: "pointer", padding: 4, fontSize: 10 }
+                    }, "✕")
+                  )
+                ).reverse()
+              )
             ),
 
             React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
