@@ -722,10 +722,12 @@
                   if (resizeHandle === "p1") { nl.x1 = pos.x; nl.y1 = pos.y; }
                   if (resizeHandle === "p2") { nl.x2 = pos.x; nl.y2 = pos.y; }
                 } else {
-                  if (resizeHandle.includes("w")) { nl.x = pos.x; nl.w = layerStartPos.w - (pos.x - layerStartPos.x); }
-                  if (resizeHandle.includes("e")) { nl.w = layerStartPos.w + (pos.x - layerStartPos.x); }
-                  if (resizeHandle.includes("n")) { nl.y = pos.y; nl.h = layerStartPos.h - (pos.y - layerStartPos.y); }
-                  if (resizeHandle.includes("s")) { nl.h = layerStartPos.h + (pos.y - layerStartPos.y); }
+                  const dx = pos.x - startPos.x;
+                  const dy = pos.y - startPos.y;
+                  if (resizeHandle.includes("w")) { nl.x = layerStartPos.x + dx; nl.w = Math.max(10, layerStartPos.w - dx); }
+                  if (resizeHandle.includes("e")) { nl.w = Math.max(10, layerStartPos.w + dx); }
+                  if (resizeHandle.includes("n")) { nl.y = layerStartPos.y + dy; nl.h = Math.max(10, layerStartPos.h - dy); }
+                  if (resizeHandle.includes("s")) { nl.h = Math.max(10, layerStartPos.h + dy); }
                 }
                 return nl;
               }
