@@ -1320,13 +1320,17 @@
           // Right panel
           image && React.createElement("div", { style: { width: 200, background: BRAND.surface, borderLeft: `1px solid ${BRAND.border}`, padding: "16px 14px", display: "flex", flexDirection: "column", gap: 18, flexShrink: 0, overflowY: "auto" } },
             React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, "Active Tool"),
-              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: toolColors[tool] || BRAND.accent } }, TOOLS.find(t => t.id === tool)?.label),
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginTop: 4 } }, {
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, selectedLayerId ? "Editing Layer" : "Active Tool"),
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: selectedLayerId ? BRAND.accent : (toolColors[tool] || BRAND.accent) } }, 
+                 selectedLayerId 
+                  ? layers.find(l => l.id === selectedLayerId)?.type.toUpperCase().charAt(0) + layers.find(l => l.id === selectedLayerId)?.type.slice(1)
+                  : TOOLS.find(t => t.id === tool)?.label
+              ),
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginTop: 4 } }, selectedLayerId ? "Scale & property adjustments active" : ({
                 select: "Click to inspect", redact: "Drag to cover text/info", blur: "Drag to blur a region",
                 pixelate: "Drag to pixelate a region", crop: "Drag to select, then Apply", arrow: "Drag to draw arrow",
                 text: "Click to place text", draw: "Drag to draw freehand"
-              }[tool] || "")
+              }[tool] || ""))
             ),
 
             // Crop — Apply / Cancel
@@ -1372,52 +1376,70 @@
               )
             ),
 
-            ["blur","pixelate","draw","arrow"].includes(tool) && React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `${tool === "blur" ? "Blur Radius" : tool === "pixelate" ? "Block Size" : "Size"} — ${brushSize}`),
-              React.createElement("input", { 
-                type: "range", min: tool === "pixelate" ? 4 : tool === "blur" ? 4 : 2, max: 40, value: brushSize, 
-                onChange: e => { const v = Number(e.target.value); setBrushSize(v); updateSelectedLayer({ radius: v, size: v }); }, 
-                style: { width: "100%", accentColor: BRAND.accent } 
-              })
-            ),
+            (() => {
+              const sel = layers.find(l => l.id === selectedLayerId);
+              const type = sel ? sel.type : tool;
+              const elements = [];
 
-            tool === "text" && React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
-              React.createElement("input", { 
-                type: "range", min: 12, max: 96, value: fontSize, 
-                onChange: e => { const v = Number(e.target.value); setFontSize(v); updateSelectedLayer({ fontSize: v }); }, 
-                style: { width: "100%", accentColor: BRAND.accent } 
-              })
-            ),
-
-            tool === "redact" && React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Redact Color"),
-              React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
-                REDACT_COLORS.map(c => React.createElement("div", { 
-                  key: c, 
-                  onClick: () => { setRedactColor(c); updateSelectedLayer({ color: c }); }, 
-                  style: { width: 28, height: 28, borderRadius: 6, background: c, border: redactColor === c ? `2px solid ${BRAND.accent}` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer" } 
-                }))
-              )
-            ),
-
-            ["draw","text","arrow"].includes(tool) && React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Color"),
-              React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 } },
-                COLOR_PRESETS.map(c =>
-                  React.createElement("div", { 
-                    key: c, 
-                    onClick: () => { setDrawColor(c); updateSelectedLayer({ color: c }); }, 
-                    style: { width: 22, height: 22, borderRadius: 5, background: c, border: drawColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: drawColor === c ? "scale(1.2)" : "scale(1)" } 
+              if (["blur", "pixelate", "draw", "arrow"].includes(type)) {
+                elements.push(React.createElement("div", { key: "brush-size" },
+                  React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, 
+                    `${type === "blur" ? "Blur Radius" : type === "pixelate" ? "Block Size" : "Size"} — ${brushSize}`
+                  ),
+                  React.createElement("input", { 
+                    type: "range", min: type === "pixelate" ? 4 : type === "blur" ? 4 : 2, max: 40, value: brushSize, 
+                    onChange: e => { const v = Number(e.target.value); setBrushSize(v); updateSelectedLayer({ radius: v, size: v }); }, 
+                    style: { width: "100%", accentColor: BRAND.accent } 
                   })
-                )
-              ),
-              React.createElement("input", { 
-                type: "color", value: drawColor, 
-                onChange: e => { setDrawColor(e.target.value); updateSelectedLayer({ color: e.target.value }); }, 
-                style: { width: "100%", height: 28, borderRadius: 6, border: `1px solid ${BRAND.border}`, cursor: "pointer" } 
-              })
-            ),
+                ));
+              }
+
+              if (type === "text") {
+                elements.push(React.createElement("div", { key: "font-size" },
+                  React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
+                  React.createElement("input", { 
+                    type: "range", min: 12, max: 96, value: fontSize, 
+                    onChange: e => { const v = Number(e.target.value); setFontSize(v); updateSelectedLayer({ fontSize: v }); }, 
+                    style: { width: "100%", accentColor: BRAND.accent } 
+                  })
+                ));
+              }
+
+              if (type === "redact") {
+                elements.push(React.createElement("div", { key: "redact-color" },
+                  React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Redact Color"),
+                  React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                    REDACT_COLORS.map(c => React.createElement("div", { 
+                      key: c, 
+                      onClick: () => { setRedactColor(c); updateSelectedLayer({ color: c }); }, 
+                      style: { width: 28, height: 28, borderRadius: 6, background: c, border: redactColor === c ? `2px solid ${BRAND.accent}` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer" } 
+                    }))
+                  )
+                ));
+              }
+
+              if (["draw", "text", "arrow"].includes(type)) {
+                elements.push(React.createElement("div", { key: "general-color" },
+                  React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Color"),
+                  React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 } },
+                    COLOR_PRESETS.map(c =>
+                      React.createElement("div", { 
+                        key: c, 
+                        onClick: () => { setDrawColor(c); updateSelectedLayer({ color: c }); }, 
+                        style: { width: 22, height: 22, borderRadius: 5, background: c, border: drawColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: drawColor === c ? "scale(1.2)" : "scale(1)" } 
+                      })
+                    )
+                  ),
+                  React.createElement("input", { 
+                    type: "color", value: drawColor, 
+                    onChange: e => { setDrawColor(e.target.value); updateSelectedLayer({ color: e.target.value }); }, 
+                    style: { width: "100%", height: 28, borderRadius: 6, border: `1px solid ${BRAND.border}`, cursor: "pointer" } 
+                  })
+                ));
+              }
+
+              return elements;
+            })(),
 
             React.createElement("div", { style: { marginTop: "auto", paddingTop: 16, borderTop: `1px solid ${BRAND.border}` } },
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Canvas"),
