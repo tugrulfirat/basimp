@@ -1,0 +1,27 @@
+{
+  "name": "basimp",
+  "version": "1.0.0",
+  "description": "> The fastest way to clean up an image before sharing it.",
+  "main": "editor.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tugrulfirat/basimp.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tugrulfirat/basimp/issues"
+  },
+  "homepage": "https://github.com/tugrulfirat/basimp#readme",
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.2",
+    "@babel/preset-react": "^7.28.5"
+  }
+}
