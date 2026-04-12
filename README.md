@@ -1,20 +1,20 @@
-# basimp — Basic Image Manipulator
+# bimp.us — Basic Image Manipulator
 
 > The fastest way to clean up an image before sharing it.
 
-**basimp** is a free, browser-based image editor built for one thing: quickly redact, blur, crop, and annotate images before sharing them. No Photoshop. No sign-up. No complexity.
+**bimp.us** is a free, browser-based image editor built for one thing: quickly redact, blur, crop, and annotate images before sharing them. No Photoshop. No sign-up. No complexity.
 
-🌐 **Live:** [basimp.com](https://basimp.com)
+🌐 **Live:** [bimp.us](https://bimp.us)
 
 ---
 
-## Why basimp?
+## Why bimp.us?
 
-Most people reach for a red marker brush to hide a name in a screenshot — and it never covers it properly. basimp gives you the right tools for the job, in seconds.
+Most people reach for a red marker brush to hide a name in a screenshot — and it never covers it properly. bimp.us gives you the right tools for the job, in seconds.
 
 The gap it fills:
 
-| Too simple | **basimp** ✅ | Too complex |
+| Too simple | **bimp.us** ✅ | Too complex |
 |---|---|---|
 | MS Paint | Smart basic tools | Photopea / GIMP |
 | Screenshot markup | Works in the browser | Photoshop |
@@ -79,7 +79,7 @@ Create blank canvases at exact platform dimensions — one click:
 This is a 100% static project — just upload `index.html` and `app.html` to any host:
 
 ```bash
-# Netlify (drag & drop the basimp/ folder)
+# Netlify (drag & drop the bimp.us/ folder)
 # Vercel
 npx vercel
 
@@ -96,8 +96,8 @@ No build step. No dependencies to install.
 PRs welcome. The entire editor is in `app.html` — one self-contained file with inline React (Babel transform). No bundler needed.
 
 ```bash
-git clone https://github.com/tugrulfirat/basimp
-cd basimp
+git clone https://github.com/tugrulfirat/bimp.us
+cd bimp.us
 open app.html   # that's it
 ```
 

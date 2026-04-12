@@ -1,0 +1,33 @@
+# Preview via IP: http://89.167.35.53:8080
+server {
+    listen 8080;
+    server_name _;
+
+    root /var/www/basimp;
+    index index.html;
+
+    location / {
+        try_files $uri $uri.html $uri/ /index.html;
+    }
+}
+
+# Final Production: http://bimp.us
+server {
+    listen 80;
+    server_name bimp.us www.bimp.us;
+
+    root /var/www/basimp;
+    index index.html;
+
+    location / {
+        try_files $uri $uri.html $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
+
+    error_page 404 /index.html;
+}
+

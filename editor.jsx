@@ -29,7 +29,7 @@ const TOOLS = [
 
 const REDACT_COLORS = ["#000000", "#1A1A2E", "#FF4757", "#FFFFFF", "#FFD700"];
 
-export default function BasimpEditor() {
+export default function Bimp.usEditor() {
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -393,7 +393,7 @@ export default function BasimpEditor() {
   const exportImage = (format = "png") => {
     const canvas = canvasRef.current;
     const link = document.createElement("a");
-    link.download = `basimp-export.${format}`;
+    link.download = `bimp.us-export.${format}`;
     link.href = canvas.toDataURL(format === "jpg" ? "image/jpeg" : "image/png", 0.95);
     link.click();
     status(`Saved as ${format.toUpperCase()} ✓`);
@@ -618,7 +618,7 @@ export default function BasimpEditor() {
 
       {/* ── Bottom Bar ── */}
       <div style={{ height: 28, background: BRAND.surface, borderTop: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", fontSize: 11, color: BRAND.textMuted, flexShrink: 0 }}>
-        <span>basimp.com — Basic Image Manipulator</span>
+        <span>bimp.us — Basic Image Manipulator</span>
         <span>Ctrl+Z undo · V select · R redact · B blur · P pixelate · C crop · A arrow · T text · D draw</span>
       </div>
     </div>

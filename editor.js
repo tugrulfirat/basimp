@@ -158,7 +158,8 @@
       const [layers, setLayers] = useState([]); // [{id, type, x, y, w, h, ...}]
       const [previewLayer, setPreviewLayer] = useState(null);
       const [selectedLayerId, setSelectedLayerId] = useState(null);
-      const [baseImage, setBaseImage] = useState(null); // HTMLImageElement — the source image
+      const [baseImage, setBaseImage] = useState(null); // The rendered image (may include mockup)
+      const [sourceImage, setSourceImage] = useState(null); // The original image (without mockup)
       const [arrowStyle, setArrowStyle] = useState("classic");
       const [isDrawing, setIsDrawing] = useState(false);
       const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -190,6 +191,16 @@
       const [proModalOpen, setProModalOpen] = useState(false);
       const [inputProKey, setInputProKey] = useState("");
       const [verifying, setVerifying] = useState(false);
+      const [devModeCount, setDevModeCount] = useState(0); // Secret to enable Pro for devs
+
+      const enableDevMode = () => {
+        if (devModeCount >= 4) {
+          setIsPro(true);
+          status("🛠 Developer Mode: Pro Unlocked");
+        } else {
+          setDevModeCount(c => c + 1);
+        }
+      };
 
   // 📦 Batch Mode State
   const [fileQueue, setFileQueue] = useState([]); // Array of File objects
@@ -290,57 +301,154 @@
         }
       };
 
+      // 💎 Remove Background (MediaPipe)
+      const [mpLoaded, setMpLoaded] = useState(false);
+      const handleRemoveBackground = async () => {
+        if (!isPro) { setProModalOpen(true); return; }
+        if (!image) return;
+
+        setStatusMsg("✂️ Removing background...");
+        try {
+          if (typeof SelfieSegmentation === 'undefined') {
+            throw new Error("MediaPipe script not found. Please refresh.");
+          }
+
+          const selfieSegmentation = new SelfieSegmentation({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`
+          });
+
+          selfieSegmentation.setOptions({ modelSelection: 0, selfiMode: false });
+
+          selfieSegmentation.onResults((results) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = sourceImage ? sourceImage.width : imageDimensions.w;
+            canvas.height = sourceImage ? sourceImage.height : imageDimensions.h;
+            const ctx = canvas.getContext("2d");
+            ctx.save();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Refine mask to remove "glow" using Multi-Pass Erosion
+            // We create a temporary mask canvas to "choke" the edges
+            const maskOff = document.createElement("canvas");
+            maskOff.width = canvas.width; maskOff.height = canvas.height;
+            const mCtx = maskOff.getContext("2d");
+            
+            // 1. Draw original AI mask
+            mCtx.drawImage(results.segmentationMask, 0, 0, canvas.width, canvas.height);
+            
+            // 2. Erode: Draw shifted versions using 'destination-in' to find the intersection
+            // This pulls the mask inward by effectively 2-3 pixels
+            mCtx.globalCompositeOperation = 'destination-in';
+            const SHIFT = 2.5;
+            mCtx.drawImage(results.segmentationMask, -SHIFT, 0, canvas.width, canvas.height);
+            mCtx.drawImage(results.segmentationMask, SHIFT, 0, canvas.width, canvas.height);
+            mCtx.drawImage(results.segmentationMask, 0, -SHIFT, canvas.width, canvas.height);
+            mCtx.drawImage(results.segmentationMask, 0, SHIFT, canvas.width, canvas.height);
+            
+            // 3. Sharpen: Apply high contrast to the eroded mask
+            ctx.filter = "contrast(10) brightness(0.6)";
+            ctx.drawImage(maskOff, 0, 0);
+            ctx.filter = "none";
+
+            // Composite the image
+            ctx.globalCompositeOperation = 'source-in';
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            const newSrc = canvas.toDataURL();
+            const newImg = new Image();
+            newImg.src = newSrc;
+            newImg.onload = () => {
+              saveHistory();
+              setBaseImage(newImg);
+              setSourceImage(newImg); // Sync source image after BG removal
+              setImage(newSrc);
+              setStatusMsg("✓ Background Removed (Refined)!");
+            };
+          });
+
+          await selfieSegmentation.send({ image: sourceImage || baseImage });
+        } catch (e) {
+          console.error(e);
+          setStatusMsg("Background Removal Error.");
+        }
+      };
+
       const applyMockup = (type = "browser") => {
         if (!isPro) { setProModalOpen(true); return; }
         if (!image) return;
 
         saveHistory();
-
         const canvas = canvasRef.current;
-        const { w, h } = imageDimensions;
+        const srcImg = sourceImage || baseImage;
+        const { width: w, height: h } = srcImg;
+
+        let newW, newH, headerH = 0, footerH = 0, sideW = 0, offsetX = 0, offsetY = 0;
+        const off = document.createElement("canvas");
 
         if (type === "browser") {
-          const headerH = 34;
-          const newW = w + 0;
-          const newH = h + headerH;
-
-          const off = document.createElement("canvas");
+          headerH = 36;
+          newW = w; newH = h + headerH;
           off.width = newW; off.height = newH;
           const offCtx = off.getContext("2d");
-
-          // Browser Header Background
-          offCtx.fillStyle = "#222222";
-          offCtx.fillRect(0, 0, newW, headerH);
-          
-          // Traffic Lights
+          offCtx.fillStyle = "#1E1E1E"; offCtx.fillRect(0, 0, newW, headerH);
           const colors = ["#FF5F56", "#FFBD2E", "#27C93F"];
           colors.forEach((c, i) => {
-            offCtx.fillStyle = c;
-            offCtx.beginPath();
-            offCtx.arc(16 + i * 18, headerH / 2, 5, 0, Math.PI * 2);
-            offCtx.fill();
+            offCtx.fillStyle = c; offCtx.beginPath();
+            offCtx.arc(16 + i * 20, headerH / 2, 6, 0, Math.PI * 2); offCtx.fill();
           });
-
-          offCtx.drawImage(baseImage, 0, headerH);
-          const newSrc = off.toDataURL();
-          const newImg = new Image();
-          newImg.src = newSrc;
-          newImg.onload = () => {
-            setBaseImage(newImg);
-            setImage(newSrc);
-            
-            setLayers(prev => prev.map(l => {
-              if (l.type === "arrow") return { ...l, y1: l.y1 + headerH, y2: l.y2 + headerH };
-              if (l.type === "draw") return { ...l, points: l.points.map(p => ({ x: p.x, y: p.y + headerH })) };
-              return { ...l, y: l.y + headerH };
-            }));
-
-            canvas.width = newW; canvas.height = newH;
-            setImageDimensions({ w: newW, h: newH });
-            setStatusMsg("✨ Browser Frame Applied!");
-          };
+          offCtx.drawImage(srcImg, 0, headerH);
+          offsetY = headerH;
+        } else if (type === "phone") {
+          headerH = 40; footerH = 20; sideW = 10;
+          newW = w + sideW * 2; newH = h + headerH + footerH;
+          off.width = newW; off.height = newH;
+          const offCtx = off.getContext("2d");
+          // Frame
+          offCtx.fillStyle = "#000"; drawRoundedRect(offCtx, 0, 0, newW, newH, 30); offCtx.fill();
+          // Notch
+          offCtx.fillStyle = "#111"; drawRoundedRect(offCtx, newW/2 - 40, 8, 80, 18, 9); offCtx.fill();
+          offCtx.drawImage(srcImg, sideW, headerH);
+          offsetX = sideW; offsetY = headerH;
+        } else if (type === "terminal") {
+          headerH = 30;
+          newW = w; newH = h + headerH;
+          off.width = newW; off.height = newH;
+          const offCtx = off.getContext("2d");
+          offCtx.fillStyle = "#2D2D2D"; offCtx.fillRect(0, 0, newW, headerH);
+          offCtx.fillStyle = "#fff"; offCtx.font = "11px monospace";
+          offCtx.fillText("bash — 80×24", 14, 19);
+          offCtx.drawImage(srcImg, 0, headerH);
+          offsetY = headerH;
         }
+
+        const newSrc = off.toDataURL();
+        const newImg = new Image();
+        newImg.src = newSrc;
+        newImg.onload = () => {
+          setBaseImage(newImg);
+          setImage(newSrc);
+          // Reposition layers relative to source
+          setLayers(prev => prev.map(l => {
+            if (l.type === "arrow") return { ...l, x1: l.x1 + offsetX, y1: l.y1 + offsetY, x2: l.x2 + offsetX, y2: l.y2 + offsetY };
+            if (l.type === "draw") return { ...l, points: l.points.map(p => ({ x: p.x + offsetX, y: p.y + offsetY })) };
+            return { ...l, x: l.x + offsetX, y: l.y + offsetY };
+          }));
+          setImageDimensions({ w: newW, h: newH });
+          setStatusMsg(`✨ ${type.charAt(0).toUpperCase() + type.slice(1)} Mockup Applied!`);
+        };
       };
+
+      function drawRoundedRect(ctx, x, y, width, height, radius) {
+        ctx.beginPath(); ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y); ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius); ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height); ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
       const [cropSelection, setCropSelection] = useState(null); // { x, y, w, h } in canvas coords
       const cropSelRef = useRef(null); // mirror of cropSelection — used inside getCropHandleAtPos
       const cropDragRef = useRef(null); // { mode, startX, startY, origCrop }
@@ -556,6 +664,7 @@
           img.onload = () => {
             if (!image) { // If no base image, set it
               setBaseImage(img);
+              setSourceImage(img);
               setImage(ev.target.result);
               setImageDimensions({ w: img.width, h: img.height });
               setResizeDims({ w: img.width, h: img.height });
@@ -1183,6 +1292,7 @@
         newImg.src = newSrc;
         newImg.onload = () => {
           setBaseImage(newImg);
+          setSourceImage(newImg); // Sync source on crop
           setImage(newSrc);
           
           // 2. Shift all layers
@@ -1231,6 +1341,7 @@
         newImg.src = newSrc;
         newImg.onload = () => {
           setBaseImage(newImg);
+          setSourceImage(newImg); // Sync source on resize
           setImage(newSrc);
 
           // 2. Scale all layers
@@ -1301,7 +1412,17 @@
         setImageDimensions({ w: displayW, h: displayH });
         setResizeDims({ w: displayW, h: displayH });
         setIsFit(true);
-        setImage("social");
+        
+        // Convert static social canvas to an image object for mockup/edit support
+        const newSrc = canvas.toDataURL();
+        const newImg = new Image();
+        newImg.src = newSrc;
+        newImg.onload = () => {
+          setBaseImage(newImg);
+          setSourceImage(newImg);
+          setImage(newSrc);
+        };
+
         setShowDropZone(false);
         setHistory([]);
         setSocialOpen(false);
@@ -1327,10 +1448,11 @@
       },
         // Top bar
         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: "52px", background: BRAND.surface, borderBottom: `1px solid ${BRAND.border}`, flexShrink: 0 } },
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-            React.createElement("a", { href: "index.html", style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" } },
-              React.createElement("img", { src: "logo.png", alt: "bimp.us", style: { height: 32, width: "auto", objectFit: "contain", mixBlendMode: "screen" } })
-            ),
+          React.createElement("div", { 
+            onClick: enableDevMode,
+            style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" } 
+          },
+            React.createElement("img", { src: "logo.png", alt: "bimp.us", style: { height: 32, width: "auto", objectFit: "contain", mixBlendMode: "screen" } }),
             React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#000", background: "#FFF", borderRadius: 4, padding: "2px 6px", letterSpacing: 0.5 } }, "BETA")
           ),
           React.createElement("div", { style: { fontSize: 13, color: statusMsg.includes("✓") || statusMsg.includes("⬇") ? BRAND.success : BRAND.textMuted } }, statusMsg),
@@ -1346,11 +1468,38 @@
             // ── Smart Redact ──
             React.createElement("div", { 
               onClick: handleAutoRedact,
-              style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", marginBottom: 12, justifyContent: "center", position: "relative" } 
+              style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", cursor: "pointer", position: "relative" } 
             },
               React.createElement("span", { style: { fontSize: 14 } }, "🤖"),
               React.createElement("span", { style: { fontWeight: 700 } }, "Smart Redact"),
-              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontWeight: 900 } }, "PRO")
+              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
+            ),
+
+            // ── Remove BG ──
+            React.createElement("div", { 
+              onClick: handleRemoveBackground,
+              style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", cursor: "pointer", position: "relative" } 
+            },
+              React.createElement("span", { style: { fontSize: 14 } }, "✂️"),
+              React.createElement("span", { style: { fontWeight: 700 } }, "Remove BG"),
+              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
+            ),
+
+            // ── Device Mockups ──
+            React.createElement("div", { 
+              onClick: () => {
+                if (!isPro) setProModalOpen(true);
+                else {
+                  const types = ["browser", "phone", "terminal"];
+                  const idx = types.indexOf(statusMsg.split(" ")[1]?.toLowerCase()) + 1;
+                  applyMockup(types[idx % types.length]);
+                }
+              },
+              style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", cursor: "pointer", position: "relative" } 
+            },
+              React.createElement("span", { style: { fontSize: 14 } }, "💻"),
+              React.createElement("span", { style: { fontWeight: 700 } }, "Mockup"),
+              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
             ),
 
             // ── Batch Process ──
@@ -1360,16 +1509,6 @@
             },
               React.createElement("span", { style: { fontSize: 14 } }, "📦"),
               React.createElement("span", { style: { fontWeight: 700, color: BRAND.success } }, `Export All (${fileQueue.length})`),
-            ),
-
-            // ── Device Mockups ──
-            React.createElement("div", { 
-              onClick: () => applyMockup("browser"),
-              style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", marginBottom: 12, justifyContent: "center", position: "relative" } 
-            },
-              React.createElement("span", { style: { fontSize: 14 } }, "💻"),
-              React.createElement("span", { style: { fontWeight: 700 } }, "Device Mockup"),
-              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontWeight: 900 } }, "PRO")
             ),
 
             // ── Tools list ──
