@@ -185,6 +185,9 @@
       const [showDropZone, setShowDropZone] = useState(true);
       const [fontSize, setFontSize] = useState(24);
       const [fontFamily, setFontFamily] = useState(VIGNELLI_FONTS[5].family); // Default to Helvetica (Inter)
+      const [textBgEnabled, setTextBgEnabled] = useState(false);
+      const [textBgColor, setTextBgColor] = useState("#000000");
+      const [textBgOpacity, setTextBgOpacity] = useState(80);
       
       // 💎 Pro State 
       const [isPro, setIsPro] = useState(false);
@@ -538,8 +541,25 @@
           drawArrowOnCanvas(ctx, layer.x1, layer.y1, layer.x2, layer.y2, layer.color, layer.size, layer.style);
         } else if (layer.type === "text") {
           ctx.font = `bold ${layer.fontSize}px ${layer.fontFamily || VIGNELLI_FONTS[5].family}`;
+          // Clear any residual shadow state — no hardcoded shadow
+          ctx.shadowBlur = 0;
+          ctx.shadowColor = "transparent";
+          // Optional background rectangle
+          if (layer.bgEnabled && layer.bgOpacity > 0) {
+            const metrics = ctx.measureText(layer.text);
+            const pad = 4;
+            ctx.save();
+            ctx.globalAlpha = layer.bgOpacity / 100;
+            ctx.fillStyle = layer.bgColor || "#000000";
+            ctx.fillRect(
+              layer.x - pad,
+              layer.y - layer.fontSize - pad,
+              metrics.width + pad * 2,
+              layer.fontSize + pad * 2
+            );
+            ctx.restore();
+          }
           ctx.fillStyle = layer.color;
-          ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
           ctx.fillText(layer.text, layer.x, layer.y);
         } else if (layer.type === "draw") {
           if (layer.points && layer.points.length > 0) {
@@ -973,6 +993,16 @@
         }
 
         if (tool === "text") { 
+          if (showTextBox) {
+            // Commit existing text, then immediately open new input at new position
+            commitText();
+            saveHistory();
+            setTextPos(pos);
+            setShowTextBox(true);
+            setIsDrawing(false);
+            return;
+          }
+          saveHistory();
           setTextPos(pos); 
           setShowTextBox(true); 
           setIsDrawing(false); 
@@ -1220,9 +1250,13 @@
         setIsDrawing(false);
       };
 
+      const cancelText = () => {
+        setHistory(h => h.slice(0, -1));
+        setTextInput(""); setShowTextBox(false); setTextPos(null);
+      };
+
       const commitText = () => {
-        if (!textInput.trim() || !textPos) { setShowTextBox(false); return; }
-        saveHistory();
+        if (!textInput.trim() || !textPos) { cancelText(); return; }
         const newLayer = {
           id: Date.now(),
           type: "text",
@@ -1231,7 +1265,10 @@
           text: textInput,
           color: drawColor,
           fontSize: fontSize,
-          fontFamily: fontFamily
+          fontFamily: fontFamily,
+          bgEnabled: textBgEnabled,
+          bgColor: textBgColor,
+          bgOpacity: textBgOpacity,
         };
         setLayers(prev => [...prev, newLayer]);
         setTextInput(""); setShowTextBox(false); setTextPos(null);
@@ -1765,11 +1802,14 @@
                 style: { position: "absolute", left: 24 + textPos.x / (canvasRef.current ? canvasRef.current.width / canvasRef.current.getBoundingClientRect().width : 1), top: 24 + textPos.y / (canvasRef.current ? canvasRef.current.height / canvasRef.current.getBoundingClientRect().height : 1), zIndex: 20 }
               },
                 React.createElement("input", {
-                  autoFocus: true, value: textInput, onChange: e => setTextInput(e.target.value),
-                  onKeyDown: e => { if (e.key === "Enter") commitText(); if (e.key === "Escape") setShowTextBox(false); },
+                  autoFocus: true, value: textInput, onChange: e => { setTextInput(e.target.value); },
+                  onKeyDown: e => { if (e.key === "Enter") { setPreviewLayer(null); commitText(); } if (e.key === "Escape") { setPreviewLayer(null); cancelText(); } },
                   placeholder: "Type → Enter...",
                   style: { 
-                    background: "rgba(0,0,0,0.9)", color: drawColor, border: `1.5px solid ${drawColor}`, borderRadius: 4, 
+                    background: textBgEnabled && textBgOpacity > 0
+                      ? (() => { const r = parseInt(textBgColor.slice(1,3),16); const g = parseInt(textBgColor.slice(3,5),16); const b = parseInt(textBgColor.slice(5,7),16); return `rgba(${r},${g},${b},${textBgOpacity/100})`; })()
+                      : "transparent",
+                    color: drawColor, border: `1.5px solid ${drawColor}`, borderRadius: 4, 
                     padding: "4px 10px", fontSize: Math.max(12, fontSize * (canvasRef.current ? canvasRef.current.getBoundingClientRect().width / canvasRef.current.width : 1)), 
                     fontWeight: 700, outline: "none", minWidth: 160, fontFamily: fontFamily
                   }
@@ -1875,6 +1915,46 @@
                           padding: "8px 6px", borderRadius: 6, background: fontFamily === f.family ? BRAND.accent + "33" : BRAND.surfaceHover, border: `1px solid ${fontFamily === f.family ? BRAND.accent : BRAND.border}`, color: fontFamily === f.family ? BRAND.accent : BRAND.text, cursor: "pointer", fontSize: 12, textAlign: "center", fontFamily: f.family, transition: "all 0.1s"
                         }
                       }, f.name))
+                    )
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                      "Text Background",
+                      React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer" } },
+                        React.createElement("input", {
+                          type: "checkbox", checked: textBgEnabled,
+                          onChange: e => { setTextBgEnabled(e.target.checked); updateSelectedLayer({ bgEnabled: e.target.checked }); },
+                          style: { accentColor: BRAND.accent, width: 14, height: 14, cursor: "pointer" }
+                        }),
+                        React.createElement("span", { style: { fontSize: 11, color: textBgEnabled ? BRAND.accent : BRAND.textMuted } }, textBgEnabled ? "On" : "Off")
+                      )
+                    ),
+                    textBgEnabled && React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                      React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, "Background Color"),
+                        React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 } },
+                          COLOR_PRESETS.map(c =>
+                            React.createElement("div", {
+                              key: c,
+                              onClick: () => { setTextBgColor(c); updateSelectedLayer({ bgColor: c }); },
+                              style: { width: 22, height: 22, borderRadius: 5, background: c, border: textBgColor === c ? `2px solid white` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer", transition: "transform 0.1s", transform: textBgColor === c ? "scale(1.2)" : "scale(1)" }
+                            })
+                          )
+                        ),
+                        React.createElement("input", {
+                          type: "color", value: textBgColor,
+                          onChange: e => { setTextBgColor(e.target.value); updateSelectedLayer({ bgColor: e.target.value }); },
+                          style: { width: "100%", height: 28, borderRadius: 6, border: `1px solid ${BRAND.border}`, cursor: "pointer" }
+                        })
+                      ),
+                      React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, `Opacity — ${textBgOpacity}%`),
+                        React.createElement("input", {
+                          type: "range", min: 0, max: 100, value: textBgOpacity,
+                          onChange: e => { const v = Number(e.target.value); setTextBgOpacity(v); updateSelectedLayer({ bgOpacity: v }); },
+                          style: { width: "100%", accentColor: BRAND.accent }
+                        })
+                      )
                     )
                   )
                 ));

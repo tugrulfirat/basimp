@@ -4,6 +4,7 @@
   "description": "> The fastest way to clean up an image before sharing it.",
   "main": "editor.js",
   "scripts": {
+    "start": "npx serve . -p 3000",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
