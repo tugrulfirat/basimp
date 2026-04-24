@@ -188,6 +188,10 @@
       const [textBgEnabled, setTextBgEnabled] = useState(false);
       const [textBgColor, setTextBgColor] = useState("#000000");
       const [textBgOpacity, setTextBgOpacity] = useState(80);
+      // Sanitize export state
+      const [sanitizeMode, setSanitizeMode] = useState(false);
+      const [showSanitizeBadge, setShowSanitizeBadge] = useState(false);
+      const [sanitizeFirstUse, setSanitizeFirstUse] = useState(true);
       
       // 💎 Pro State 
       const [isPro, setIsPro] = useState(false);
@@ -1275,18 +1279,24 @@
         status("T Text added as layer");
       };
 
-      const exportImage = (format = "png") => {
+      const exportImage = (format = "png", sanitize = false) => {
         renderAll(true);
         const canvas = canvasRef.current;
         const link = document.createElement("a");
-        link.download = `bimp-export.${format}`;
+        link.download = sanitize ? `bimp-sanitized.${format}` : `bimp-export.${format}`;
         const mimeMap = { png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg", webp:"image/webp", bmp:"image/bmp" };
         const mime = mimeMap[format] || "image/png";
         const quality = (format === "jpg" || format === "jpeg" || format === "webp") ? 0.95 : undefined;
         link.href = canvas.toDataURL(mime, quality);
         link.click();
         renderAll(false);
-        status(`⬇ Saved as ${format.toUpperCase()}`);
+        if (sanitize) {
+          status("🛡 Exported — metadata stripped");
+          setShowSanitizeBadge(true);
+          setTimeout(() => setShowSanitizeBadge(false), 4000);
+        } else {
+          status(`⬇ Saved as ${format.toUpperCase()}`);
+        }
       };
 
       const copyToClipboard = async () => {
@@ -1492,7 +1502,12 @@
             React.createElement("img", { src: "logo.png", alt: "bimp.us", style: { height: 32, width: "auto", objectFit: "contain", mixBlendMode: "screen" } }),
             React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#000", background: "#FFF", borderRadius: 4, padding: "2px 6px", letterSpacing: 0.5 } }, "BETA")
           ),
-          React.createElement("div", { style: { fontSize: 13, color: statusMsg.includes("✓") || statusMsg.includes("⬇") ? BRAND.success : BRAND.textMuted } }, statusMsg),
+          React.createElement("div", { style: { fontSize: 13, color: statusMsg.includes("✓") || statusMsg.includes("⬇") || statusMsg.includes("🛡") ? BRAND.success : BRAND.textMuted } }, statusMsg),
+          showSanitizeBadge && React.createElement("div", {
+            role: "status",
+            "aria-live": "polite",
+            style: { fontSize: 12, fontWeight: 700, color: BRAND.success, background: `${BRAND.success}18`, border: `1px solid ${BRAND.success}`, borderRadius: 6, padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: 5 }
+          }, "🛡 Sanitized — no metadata"),
           React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
             // ── Upgrade to Pro ──
             !isPro && React.createElement("button", {
@@ -1614,8 +1629,28 @@
               ),
               React.createElement("button", { onClick: undo, disabled: history.length === 0, style: btnStyle(BRAND, history.length === 0), title: "Undo (Ctrl+Z)" }, "↩ Undo"),
               React.createElement("button", { onClick: copyToClipboard, style: btnStyle(BRAND) }, "📋 Copy"),
-              React.createElement("button", { onClick: () => exportImage("png"), style: btnStyle(BRAND, false, true) }, "⬇ PNG"),
-              React.createElement("button", { onClick: () => exportImage("jpg"), style: btnStyle(BRAND) }, "⬇ JPG"),
+              React.createElement("label", {
+                style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 7, border: `1px solid ${sanitizeMode ? BRAND.success : BRAND.border}`, background: sanitizeMode ? `${BRAND.success}18` : "transparent", fontSize: 12, color: sanitizeMode ? BRAND.success : BRAND.textMuted, transition: "all 0.15s", userSelect: "none", minWidth: 0 },
+                title: "Strips EXIF, GPS, author, and all embedded metadata from the exported file",
+              },
+                React.createElement("input", {
+                  type: "checkbox", checked: sanitizeMode,
+                  "aria-label": "Sanitize export: strip all metadata",
+                  "aria-checked": sanitizeMode,
+                  onChange: () => {
+                    const next = !sanitizeMode;
+                    setSanitizeMode(next);
+                    if (next && sanitizeFirstUse) {
+                      status("🛡 Sanitize mode on — EXIF, GPS & author data will be stripped on export");
+                      setSanitizeFirstUse(false);
+                    }
+                  },
+                  style: { accentColor: BRAND.success, cursor: "pointer" }
+                }),
+                "🛡 Sanitize"
+              ),
+              React.createElement("button", { onClick: () => exportImage("png", sanitizeMode), title: sanitizeMode ? "This export will strip all metadata" : "Export as PNG", style: btnStyle(BRAND, false, true) }, "⬇ PNG"),
+              React.createElement("button", { onClick: () => exportImage("jpg", sanitizeMode), title: sanitizeMode ? "This export will strip all metadata" : "Export as JPG", style: btnStyle(BRAND) }, "⬇ JPG"),
               // Save As dropdown
               React.createElement("div", { ref: saveAsRef, style: { position: "relative" } },
                 React.createElement("button", {
@@ -1632,7 +1667,7 @@
                   ].map(({fmt, label, note}) =>
                     React.createElement("div", {
                       key: fmt,
-                      onClick: () => { exportImage(fmt); setSaveAsOpen(false); },
+                      onClick: () => { exportImage(fmt, sanitizeMode); setSaveAsOpen(false); },
                       style: { padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
                       onMouseEnter: e => e.currentTarget.style.background = BRAND.surfaceHover,
                       onMouseLeave: e => e.currentTarget.style.background = "transparent",
@@ -2040,8 +2075,8 @@
 
             React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
               React.createElement("button", { onClick: copyToClipboard, style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "📋 Copy to Clipboard"),
-              React.createElement("button", { onClick: () => exportImage("png"), style: { ...btnStyle(BRAND, false, true), width: "100%", justifyContent: "center" } }, "⬇ Export PNG"),
-              React.createElement("button", { onClick: () => exportImage("jpg"), style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "⬇ Export JPG")
+              React.createElement("button", { onClick: () => exportImage("png", sanitizeMode), style: { ...btnStyle(BRAND, false, true), width: "100%", justifyContent: "center" } }, "⬇ Export PNG"),
+              React.createElement("button", { onClick: () => exportImage("jpg", sanitizeMode), style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "⬇ Export JPG")
             )
           ),
         ),
