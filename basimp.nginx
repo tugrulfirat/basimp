@@ -4,10 +4,10 @@ server {
     server_name _;
 
     root /var/www/basimp;
-    index index.html;
+    index app.html;
 
     location / {
-        try_files $uri $uri.html $uri/ /index.html;
+        try_files $uri $uri.html $uri/ /app.html;
     }
 }
 
@@ -17,10 +17,10 @@ server {
     server_name bimp.us www.bimp.us;
 
     root /var/www/basimp;
-    index index.html;
+    index app.html;
 
     location / {
-        try_files $uri $uri.html $uri/ /index.html;
+        try_files $uri $uri.html $uri/ /app.html;
     }
 
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
@@ -28,6 +28,15 @@ server {
         add_header Cache-Control "public, no-transform";
     }
 
-    error_page 404 /index.html;
+    # Proxy for the bimp-api backend (auth, credits, Stripe webhooks)
+    location /api/ {
+        proxy_pass http://localhost:3002;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    error_page 404 /app.html;
 }
 

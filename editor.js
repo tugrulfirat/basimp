@@ -141,6 +141,7 @@
       const [isFit, setIsFit] = useState(true);
       const [displayZoom, setDisplayZoom] = useState(100);
       const [customZoom, setCustomZoom] = useState(100);
+      const [resizePreviewScale, setResizePreviewScale] = useState(null);
       
       const imageCache = useRef(new Map());
       const getCachedImage = useCallback((src) => {
@@ -153,6 +154,7 @@
         return img;
       }, []);
       const [resizeDims, setResizeDims] = useState({ w: 0, h: 0 });
+      const [resizeMode, setResizeMode] = useState("scale"); // "scale" | "canvas"
       const [aspectLock, setAspectLock] = useState(true);
       const [tool, setTool] = useState("arrow");
       const [layers, setLayers] = useState([]); // [{id, type, x, y, w, h, ...}]
@@ -200,6 +202,117 @@
       const [verifying, setVerifying] = useState(false);
       const [devModeCount, setDevModeCount] = useState(0); // Secret to enable Pro for devs
 
+      // 👤 Auth & Credits State
+      const [user, setUser] = useState(null); // { email, is_pro, credits, credits_spent, byok_unlocked, byok_key }
+      const [authModalOpen, setAuthModalOpen] = useState(false);
+      const [authEmail, setAuthEmail] = useState("");
+      const [authSent, setAuthSent] = useState(false);
+      const [authLoading, setAuthLoading] = useState(false);
+      const [byokInput, setByokInput] = useState("");
+      const [byokSaving, setByokSaving] = useState(false);
+      const [activeTab, setActiveTab] = useState("login"); // "login" | "credits" | "byok"
+
+      // Session token stored in localStorage
+      const getToken = () => localStorage.getItem("bimp_session");
+      const setToken = (t) => t ? localStorage.setItem("bimp_session", t) : localStorage.removeItem("bimp_session");
+
+      // Fetch user from API
+      const fetchUser = useCallback(async (token) => {
+        if (!token) return;
+        try {
+          const r = await fetch("/api/user", { headers: { Authorization: `Bearer ${token}` } });
+          if (r.ok) {
+            const data = await r.json();
+            setUser(data);
+            setIsPro(data.is_pro);
+            if (data.byok_key) setByokInput(data.byok_key);
+          } else {
+            setToken(null);
+            setUser(null);
+          }
+        } catch {}
+      }, []);
+
+      // On mount — check for session token in URL hash or localStorage
+      useEffect(() => {
+        const hash = window.location.hash;
+        if (hash.includes("session=")) {
+          const token = hash.split("session=")[1];
+          setToken(token);
+          window.location.hash = "";
+          fetchUser(token);
+        } else {
+          const token = getToken();
+          if (token) fetchUser(token);
+        }
+      }, [fetchUser]);
+
+      // On mount — pre-enable Sanitize mode when linked from the landing page (?sanitize=1)
+      useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("sanitize") === "1") {
+          setSanitizeMode(true);
+        }
+      }, []);
+
+      // Send magic link
+      const sendMagicLink = async () => {
+        if (!authEmail.includes("@")) return;
+        setAuthLoading(true);
+        try {
+          const r = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: authEmail })
+          });
+          if (r.ok) setAuthSent(true);
+          else status("Failed to send magic link — try again");
+        } catch { status("Network error — try again"); }
+        setAuthLoading(false);
+      };
+
+      // Logout
+      const logout = async () => {
+        const token = getToken();
+        if (token) await fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+        setToken(null);
+        setUser(null);
+        setIsPro(false);
+        status("Logged out");
+      };
+
+      // Save BYOK key
+      const saveByok = async () => {
+        if (!byokInput.trim()) return;
+        setByokSaving(true);
+        try {
+          const r = await fetch("/api/user/byok", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+            body: JSON.stringify({ key: byokInput.trim() })
+          });
+          if (r.ok) { status("✓ API key saved"); fetchUser(getToken()); }
+          else { const d = await r.json(); status(d.error || "Failed to save key"); }
+        } catch { status("Network error"); }
+        setByokSaving(false);
+      };
+
+      // Use credits for AI feature
+      const useCredits = async (amount = 1) => {
+        const token = getToken();
+        if (!token) { setAuthModalOpen(true); return false; }
+        try {
+          const r = await fetch("/api/credits/use", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ amount })
+          });
+          const d = await r.json();
+          if (r.ok) { setUser(u => ({ ...u, credits: d.credits, credits_spent: d.credits_spent, byok_unlocked: d.byok_unlocked })); return true; }
+          if (r.status === 402) { status("⚠ Not enough credits — top up to continue"); setAuthModalOpen(true); setActiveTab("credits"); return false; }
+        } catch {}
+        return false;
+      };
+
       const enableDevMode = () => {
         if (devModeCount >= 4) {
           setIsPro(true);
@@ -230,13 +343,15 @@
       }, [selectedLayerId]);
 
       const updateSelectedLayer = (props) => {
-        if (!selectedLayerId) return;
+        if (!selectedLayerId || tool !== "select") return;
         setLayers(prev => prev.map(l => l.id === selectedLayerId ? { ...l, ...props } : l));
       };
 
       const arrowStartRef = useRef(null);
       const [resizeHandle, setResizeHandle] = useState(null); // Which handle of the layer is being dragged?
       const [layerStartPos, setLayerStartPos] = useState(null); // Original coords when drag starts
+      const layerStartRef = useRef(null);
+      const layerTransformActiveRef = useRef(false);
 
       // 💎 License Verification
       const verifyProKey = async (key) => {
@@ -459,6 +574,7 @@
       const [cropSelection, setCropSelection] = useState(null); // { x, y, w, h } in canvas coords
       const cropSelRef = useRef(null); // mirror of cropSelection — used inside getCropHandleAtPos
       const cropDragRef = useRef(null); // { mode, startX, startY, origCrop }
+      const resizeDragRef = useRef(null);
       const [socialOpen, setSocialOpen] = useState(false);
       const [activeSocial, setActiveSocial] = useState(null);
       const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -491,32 +607,16 @@
         if (!exporting && selectedLayerId && tool === "select") {
           const l = layers.find(l => l.id === selectedLayerId);
           if (l) {
+            const bounds = getLayerBounds(l);
             ctx.save();
             ctx.strokeStyle = BRAND.accent; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-            let x, y, w, h;
-            if (l.type === "arrow") {
-              ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke();
-              // Arrow handles
-              ctx.setLineDash([]); ctx.fillStyle = "#fff";
-              [[l.x1, l.y1], [l.x2, l.y2]].forEach(([px, py]) => {
-                ctx.fillRect(px - 4, py - 4, 8, 8); ctx.strokeRect(px - 4, py - 4, 8, 8);
-              });
-            } else if (l.type === "text") {
-              ctx.font = `bold ${l.fontSize}px Inter`;
-              const m = ctx.measureText(l.text);
-              x = l.x - 4; y = l.y - l.fontSize; w = m.width + 8; h = l.fontSize + 8;
-              ctx.strokeRect(x, y, w, h);
-            } else if (l.type === "draw") {
-              // No resize for freehand yet
-            } else {
-              x = l.x - 2; y = l.y - 2; w = l.w + 4; h = l.h + 4;
-              ctx.strokeRect(x, y, w, h);
-              // 8 Handles
+            if (bounds) {
+              ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
               ctx.setLineDash([]); ctx.fillStyle = "#fff";
               const hh = [
-                [l.x, l.y], [l.x+l.w/2, l.y], [l.x+l.w, l.y],
-                [l.x, l.y+l.h/2], [l.x+l.w, l.y+l.h/2],
-                [l.x, l.y+l.h], [l.x+l.w/2, l.y+l.h], [l.x+l.w, l.y+l.h]
+                [bounds.x, bounds.y], [bounds.x + bounds.w / 2, bounds.y], [bounds.x + bounds.w, bounds.y],
+                [bounds.x, bounds.y + bounds.h / 2], [bounds.x + bounds.w, bounds.y + bounds.h / 2],
+                [bounds.x, bounds.y + bounds.h], [bounds.x + bounds.w / 2, bounds.y + bounds.h], [bounds.x + bounds.w, bounds.y + bounds.h]
               ];
               hh.forEach(([hx, hy]) => {
                 ctx.fillRect(hx - 4, hy - 4, 8, 8); ctx.strokeRect(hx - 4, hy - 4, 8, 8);
@@ -584,10 +684,88 @@
         ctx.restore();
       };
 
+      const getLayerBounds = (layer) => {
+        if (!layer) return null;
+        if (["redact", "blur", "pixelate", "image"].includes(layer.type)) {
+          return { x: layer.x, y: layer.y, w: layer.w, h: layer.h };
+        }
+        if (layer.type === "text") {
+          const ctx = canvasRef.current?.getContext("2d");
+          if (!ctx) return null;
+          ctx.save();
+          ctx.font = `bold ${layer.fontSize}px ${layer.fontFamily || VIGNELLI_FONTS[5].family}`;
+          const w = Math.max(8, ctx.measureText(layer.text || "").width);
+          ctx.restore();
+          return { x: layer.x, y: layer.y - layer.fontSize, w, h: layer.fontSize };
+        }
+        if (layer.type === "arrow") {
+          const pad = Math.max(8, (layer.size || 4) * 3);
+          const x = Math.min(layer.x1, layer.x2);
+          const y = Math.min(layer.y1, layer.y2);
+          return { x: x - pad, y: y - pad, w: Math.abs(layer.x2 - layer.x1) + pad * 2, h: Math.abs(layer.y2 - layer.y1) + pad * 2 };
+        }
+        if (layer.type === "draw" && layer.points?.length) {
+          const xs = layer.points.map(p => p.x);
+          const ys = layer.points.map(p => p.y);
+          const pad = Math.max(8, (layer.size || 4) / 2);
+          const x = Math.min(...xs) - pad;
+          const y = Math.min(...ys) - pad;
+          return { x, y, w: Math.max(2, Math.max(...xs) - Math.min(...xs) + pad * 2), h: Math.max(2, Math.max(...ys) - Math.min(...ys) + pad * 2) };
+        }
+        return null;
+      };
+
+      const getBoundsHandle = (bounds, pos) => {
+        if (!bounds) return null;
+        const { x, y, w, h } = bounds;
+        const H = 10;
+        const handles = {
+          nw: [x, y], n: [x + w / 2, y], ne: [x + w, y],
+          w: [x, y + h / 2], e: [x + w, y + h / 2],
+          sw: [x, y + h], s: [x + w / 2, y + h], se: [x + w, y + h],
+        };
+        for (const [name, [hx, hy]] of Object.entries(handles)) {
+          if (Math.abs(pos.x - hx) <= H && Math.abs(pos.y - hy) <= H) return name;
+        }
+        return null;
+      };
+
+      const scalePointFromBounds = (p, from, to) => ({
+        x: to.x + ((p.x - from.x) / Math.max(1, from.w)) * to.w,
+        y: to.y + ((p.y - from.y) / Math.max(1, from.h)) * to.h,
+      });
+
+      const transformLayerToBounds = (layer, from, to) => {
+        const { _bounds, ...baseLayer } = layer;
+        const sx = to.w / Math.max(1, from.w);
+        const sy = to.h / Math.max(1, from.h);
+        if (["redact", "blur", "pixelate", "image"].includes(layer.type)) {
+          return { ...baseLayer, x: to.x, y: to.y, w: to.w, h: to.h, radius: layer.radius ? layer.radius * Math.max(sx, sy) : layer.radius };
+        }
+        if (layer.type === "text") {
+          const scale = Math.max(0.1, Math.max(sx, sy));
+          const anchor = scalePointFromBounds({ x: layer.x, y: layer.y }, from, to);
+          return { ...baseLayer, x: anchor.x, y: anchor.y, fontSize: Math.max(6, layer.fontSize * scale) };
+        }
+        if (layer.type === "arrow") {
+          const p1 = scalePointFromBounds({ x: layer.x1, y: layer.y1 }, from, to);
+          const p2 = scalePointFromBounds({ x: layer.x2, y: layer.y2 }, from, to);
+          return { ...baseLayer, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, size: Math.max(1, (layer.size || 4) * Math.max(sx, sy)) };
+        }
+        if (layer.type === "draw" && layer.points?.length) {
+          return { ...baseLayer, points: layer.points.map(p => scalePointFromBounds(p, from, to)), size: Math.max(1, (layer.size || 4) * Math.max(sx, sy)) };
+        }
+        return baseLayer;
+      };
+
       // Effect to measure actual canvas scale for the zoom slider UI
       useEffect(() => {
         if (!canvasRef.current || imageDimensions.w === 0) return;
         const updateZoom = () => {
+          if (tool === "resize" && resizePreviewScale) {
+            setDisplayZoom(Math.max(1, Math.round(resizePreviewScale * 100)));
+            return;
+          }
           const canvas = canvasRef.current;
           const rect = canvas.getBoundingClientRect();
           if (isFit) {
@@ -603,7 +781,7 @@
         updateZoom();
         
         return () => observer.disconnect();
-      }, [isFit, customZoom, imageDimensions.w, imageDimensions.h]);
+      }, [isFit, customZoom, imageDimensions.w, imageDimensions.h, tool, resizePreviewScale]);
 
       // Global hotkeys (Enter/Esc) for Apply/Cancel
       useEffect(() => {
@@ -969,6 +1147,22 @@
         return null;
       };
 
+      const getResizeHandleAtPos = (clientX, clientY) => {
+        if (tool !== "resize" || !canvasRef.current || imageDimensions.w === 0) return null;
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const handles = {
+          nw: [rect.left, rect.top],
+          ne: [rect.right, rect.top],
+          sw: [rect.left, rect.bottom],
+          se: [rect.right, rect.bottom],
+        };
+        for (const [name, [hx, hy]] of Object.entries(handles)) {
+          if (Math.abs(clientX - hx) <= HANDLE_R && Math.abs(clientY - hy) <= HANDLE_R) return name;
+        }
+        return null;
+      };
+
       const handleMouseDown = (e) => {
         if (!image) return;
         if (e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
@@ -979,18 +1173,28 @@
         if (tool === "select") {
           const handle = getLayerHandleAtPos(pos);
           if (handle) {
+            saveHistory();
             setResizeHandle(handle);
             const l = layers.find(x => x.id === selectedLayerId);
-            setLayerStartPos({ ...l });
+            const startLayer = { ...l, _bounds: getLayerBounds(l) };
+            setLayerStartPos(startLayer);
+            layerStartRef.current = startLayer;
+            layerTransformActiveRef.current = true;
           } else {
             const hit = findLayerAtPos(pos);
             if (hit) {
+              saveHistory();
               setSelectedLayerId(hit.id);
-              setLayerStartPos({ ...hit });
+              const startLayer = { ...hit, _bounds: getLayerBounds(hit) };
+              setLayerStartPos(startLayer);
+              layerStartRef.current = startLayer;
+              layerTransformActiveRef.current = true;
               setResizeHandle(null);
             } else {
               setSelectedLayerId(null);
               setIsDrawing(false);
+              layerStartRef.current = null;
+              layerTransformActiveRef.current = false;
             }
           }
           return;
@@ -1028,6 +1232,25 @@
           }
           return;
         }
+
+        if (tool === "resize") {
+          const handle = getResizeHandleAtPos(e.clientX, e.clientY);
+          if (handle) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            resizeDragRef.current = {
+              handle,
+              startX: e.clientX,
+              startY: e.clientY,
+              origW: parseInt(resizeDims.w) || imageDimensions.w,
+              origH: parseInt(resizeDims.h) || imageDimensions.h,
+              scaleX: resizePreviewScale || (rect.width / imageDimensions.w),
+              scaleY: resizePreviewScale || (rect.height / imageDimensions.h),
+            };
+          } else {
+            setIsDrawing(false);
+          }
+          return;
+        }
         
         if (tool === "draw") {
           lastDrawPos.current = pos;
@@ -1039,22 +1262,7 @@
         if (!selectedLayerId || tool !== "select") return null;
         const l = layers.find(x => x.id === selectedLayerId);
         if (!l) return null;
-        const H = 10; // hit area
-        if (l.type === "arrow") {
-          if (Math.abs(pos.x - l.x1) < H && Math.abs(pos.y - l.y1) < H) return "p1";
-          if (Math.abs(pos.x - l.x2) < H && Math.abs(pos.y - l.y2) < H) return "p2";
-        } else if (l.type !== "draw" && l.type !== "text") {
-          const { x, y, w, h } = l;
-          if (Math.abs(pos.x - x) < H && Math.abs(pos.y - y) < H) return "nw";
-          if (Math.abs(pos.x - (x+w)) < H && Math.abs(pos.y - y) < H) return "ne";
-          if (Math.abs(pos.x - x) < H && Math.abs(pos.y - (y+h)) < H) return "sw";
-          if (Math.abs(pos.x - (x+w)) < H && Math.abs(pos.y - (y+h)) < H) return "se";
-          if (Math.abs(pos.x - (x+w/2)) < H && Math.abs(pos.y - y) < H) return "n";
-          if (Math.abs(pos.x - (x+w/2)) < H && Math.abs(pos.y - (y+h)) < H) return "s";
-          if (Math.abs(pos.x - x) < H && Math.abs(pos.y - (y+h/2)) < H) return "w";
-          if (Math.abs(pos.x - (x+w)) < H && Math.abs(pos.y - (y+h/2)) < H) return "e";
-        }
-        return null;
+        return getBoundsHandle(getLayerBounds(l), pos);
       };
 
       const findLayerAtPos = (pos) => {
@@ -1072,6 +1280,9 @@
           } else if (l.type === "arrow") {
             const dist = distToSegment(pos, { x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
             if (dist < 20) return l;
+          } else if (l.type === "draw") {
+            const b = getLayerBounds(l);
+            if (b && pos.x >= b.x && pos.x <= b.x + b.w && pos.y >= b.y && pos.y <= b.y + b.h) return l;
           } else if (l.type === "image") {
             if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) return l;
           }
@@ -1103,45 +1314,57 @@
              const cursorMap = { nw:'nw-resize',n:'n-resize',ne:'ne-resize',w:'w-resize',e:'e-resize',sw:'sw-resize',s:'s-resize',se:'se-resize',move:'move' };
              canvasRef.current.style.cursor = cursorMap[h] || 'crosshair';
           }
+          if (tool === "resize") {
+            const h = getResizeHandleAtPos(e.clientX, e.clientY);
+            const cursorMap = { nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize' };
+            canvasRef.current.style.cursor = cursorMap[h] || 'default';
+          }
           return;
         }
 
         // --- DRAWING / DRAGGING LOGIC ---
         if (tool === "select" && selectedLayerId) {
+          const startLayer = layerStartRef.current;
+          if (!startLayer) return;
           const dx = pos.x - startPos.x;
           const dy = pos.y - startPos.y;
           setLayers(prev => prev.map(l => {
             if (l.id === selectedLayerId) {
               if (resizeHandle) {
-                const nl = { ...l };
-                if (l.type === "arrow") {
-                  if (resizeHandle === "p1") { nl.x1 = pos.x; nl.y1 = pos.y; }
-                  if (resizeHandle === "p2") { nl.x2 = pos.x; nl.y2 = pos.y; }
-                } else {
-                  const dx = pos.x - startPos.x;
-                  const dy = pos.y - startPos.y;
-                  if (resizeHandle.includes("w")) { nl.x = layerStartPos.x + dx; nl.w = Math.max(10, layerStartPos.w - dx); }
-                  if (resizeHandle.includes("e")) { nl.w = Math.max(10, layerStartPos.w + dx); }
-                  if (resizeHandle.includes("n")) { nl.y = layerStartPos.y + dy; nl.h = Math.max(10, layerStartPos.h - dy); }
-                  if (resizeHandle.includes("s")) { nl.h = Math.max(10, layerStartPos.h + dy); }
-                  
-                  // Aspect Ratio Lock (Shift key)
-                  if (e.shiftKey && (nl.type === "image" || nl.type === "text")) {
-                    const r = layerStartPos.ratio || (layerStartPos.w / layerStartPos.h);
-                    if (resizeHandle.length === 2) { // corners
-                      if (nl.w / nl.h > r) nl.w = nl.h * r; else nl.h = nl.w / r;
-                      if (resizeHandle.includes("w")) nl.x = layerStartPos.x + (layerStartPos.w - nl.w);
-                      if (resizeHandle.includes("n")) nl.y = layerStartPos.y + (layerStartPos.h - nl.h);
-                    }
-                  }
+                const from = startLayer._bounds || getLayerBounds(startLayer);
+                if (!from) return l;
+                const dx = pos.x - startPos.x;
+                const dy = pos.y - startPos.y;
+                let to = { ...from };
+                if (resizeHandle.includes("w")) { to.x = from.x + dx; to.w = from.w - dx; }
+                if (resizeHandle.includes("e")) { to.w = from.w + dx; }
+                if (resizeHandle.includes("n")) { to.y = from.y + dy; to.h = from.h - dy; }
+                if (resizeHandle.includes("s")) { to.h = from.h + dy; }
+                if (to.w < 10) {
+                  if (resizeHandle.includes("w")) to.x = from.x + from.w - 10;
+                  to.w = 10;
                 }
-                return nl;
+                if (to.h < 10) {
+                  if (resizeHandle.includes("n")) to.y = from.y + from.h - 10;
+                  to.h = 10;
+                }
+                if (e.shiftKey || resizeHandle.length === 2) {
+                  const ratio = from.w / Math.max(1, from.h);
+                  if (to.w / Math.max(1, to.h) > ratio) to.w = to.h * ratio;
+                  else to.h = to.w / ratio;
+                  if (resizeHandle.includes("w")) to.x = from.x + from.w - to.w;
+                  if (resizeHandle.includes("n")) to.y = from.y + from.h - to.h;
+                }
+                return transformLayerToBounds(startLayer, from, to);
               }
               // Normal move
               if (l.type === "arrow") {
-                return { ...l, x1: layerStartPos.x1 + dx, y1: layerStartPos.y1 + dy, x2: layerStartPos.x2 + dx, y2: layerStartPos.y2 + dy };
+                return { ...l, x1: startLayer.x1 + dx, y1: startLayer.y1 + dy, x2: startLayer.x2 + dx, y2: startLayer.y2 + dy };
               }
-              return { ...l, x: layerStartPos.x + dx, y: layerStartPos.y + dy };
+              if (l.type === "draw" && startLayer.points) {
+                return { ...l, points: startLayer.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
+              }
+              return { ...l, x: startLayer.x + dx, y: startLayer.y + dy };
             }
             return l;
           }));
@@ -1200,6 +1423,27 @@
           return;
         }
 
+        if (tool === "resize" && resizeDragRef.current) {
+          const drag = resizeDragRef.current;
+          const dx = (e.clientX - drag.startX) / drag.scaleX;
+          const dy = (e.clientY - drag.startY) / drag.scaleY;
+          let w = drag.origW;
+          let h = drag.origH;
+          if (drag.handle.includes("e")) w = drag.origW + dx;
+          if (drag.handle.includes("w")) w = drag.origW - dx;
+          if (drag.handle.includes("s")) h = drag.origH + dy;
+          if (drag.handle.includes("n")) h = drag.origH - dy;
+          w = Math.max(2, Math.round(w));
+          h = Math.max(2, Math.round(h));
+          if (aspectLock) {
+            const ratio = drag.origW / drag.origH;
+            if (Math.abs(w - drag.origW) >= Math.abs(h - drag.origH)) h = Math.max(2, Math.round(w / ratio));
+            else w = Math.max(2, Math.round(h * ratio));
+          }
+          setResizeDims({ w, h });
+          return;
+        }
+
         // Overlay for other rect tools
         if (["redact","blur","pixelate"].includes(tool) && overlayRef.current) {
           const canvas = canvasRef.current;
@@ -1227,8 +1471,12 @@
         if (overlayRef.current) overlayRef.current.style.display = "none";
         
         if (tool === "select") {
-          if (isDrawing) saveHistory();
           setIsDrawing(false);
+          setResizeHandle(null);
+          setLayerStartPos(null);
+          if (layerTransformActiveRef.current) status("Transform applied");
+          layerStartRef.current = null;
+          layerTransformActiveRef.current = false;
           return;
         }
 
@@ -1240,6 +1488,13 @@
             setCrop(null);
           }
           setIsDrawing(false);
+          return;
+        }
+
+        if (tool === "resize") {
+          resizeDragRef.current = null;
+          setIsDrawing(false);
+          status("⤡ Resize preview updated · Apply Resize to commit", 0);
           return;
         }
 
@@ -1372,44 +1627,44 @@
         const w = parseInt(resizeDims.w);
         const h = parseInt(resizeDims.h);
         if (isNaN(w) || isNaN(h) || w < 2 || h < 2) { status("Invalid resize dimensions"); return; }
-        
+
         const sw = w / imageDimensions.w;
         const sh = h / imageDimensions.h;
 
         saveHistory();
-        
-        // 1. Resize Base Image
+
         const off = document.createElement("canvas");
         off.width = w; off.height = h;
         const offCtx = off.getContext("2d");
-        offCtx.drawImage(baseImage, 0, 0, w, h);
+        offCtx.drawImage(baseImage, 0, 0, resizeMode === "scale" ? w : imageDimensions.w, resizeMode === "scale" ? h : imageDimensions.h);
         const newSrc = off.toDataURL();
         const newImg = new Image();
         newImg.src = newSrc;
         newImg.onload = () => {
           setBaseImage(newImg);
-          setSourceImage(newImg); // Sync source on resize
+          setSourceImage(newImg);
           setImage(newSrc);
 
-          // 2. Scale all layers
-          setLayers(prev => prev.map(l => {
-            if (l.type === "arrow") {
-              return { ...l, x1: l.x1 * sw, y1: l.y1 * sh, x2: l.x2 * sw, y2: l.y2 * sh, size: l.size * sw };
-            }
-            if (l.type === "draw") {
-              return { ...l, points: l.points.map(p => ({ x: p.x * sw, y: p.y * sh })), size: (l.size || 5) * sw };
-            }
-            if (l.type === "text") {
-              return { ...l, x: l.x * sw, y: l.y * sh, fontSize: l.fontSize * sw };
-            }
-            // Rect tools (blur, redact, pixelate)
-            return { ...l, x: l.x * sw, y: l.y * sh, w: l.w * sw, h: l.h * sh, radius: (l.radius || 10) * sw };
-          }));
+          if (resizeMode === "scale") {
+            setLayers(prev => prev.map(l => {
+              if (l.type === "arrow") {
+                return { ...l, x1: l.x1 * sw, y1: l.y1 * sh, x2: l.x2 * sw, y2: l.y2 * sh, size: l.size * sw };
+              }
+              if (l.type === "draw") {
+                return { ...l, points: l.points.map(p => ({ x: p.x * sw, y: p.y * sh })), size: (l.size || 5) * sw };
+              }
+              if (l.type === "text") {
+                return { ...l, x: l.x * sw, y: l.y * sh, fontSize: l.fontSize * sw };
+              }
+              return { ...l, x: l.x * sw, y: l.y * sh, w: l.w * sw, h: l.h * sh, radius: (l.radius || 10) * sw };
+            }));
+          }
 
           const canvas = canvasRef.current;
           canvas.width = w; canvas.height = h;
           setImageDimensions({ w, h });
-          status(`⤡ Resized (Layers Scaled) to ${w}×${h}px`);
+          setResizePreviewScale(null);
+          status(resizeMode === "scale" ? `⤡ Resized image + layers to ${w}×${h}px` : `⤡ Canvas resized to ${w}×${h}px`);
           selectTool("select"); 
         };
       };
@@ -1479,7 +1734,22 @@
 
       // Clear crop selection when switching away from crop tool
       const selectTool = (t) => {
+        if (layerTransformActiveRef.current) {
+          setIsDrawing(false);
+          setResizeHandle(null);
+          setLayerStartPos(null);
+          layerStartRef.current = null;
+          layerTransformActiveRef.current = false;
+          status("Transform applied");
+        }
         if (t !== "crop" && cropSelRef.current) setCrop(null);
+        if (t === "resize" && canvasRef.current && imageDimensions.w > 0) {
+          const rect = canvasRef.current.getBoundingClientRect();
+          setResizePreviewScale(rect.width / imageDimensions.w);
+        } else if (t !== "resize") {
+          setResizePreviewScale(null);
+          resizeDragRef.current = null;
+        }
         setTool(t);
       };
 
@@ -1489,6 +1759,13 @@
         if (tool === "select") return "default";
         return "crosshair";
       };
+
+      const editingLayer = tool === "select" ? layers.find(l => l.id === selectedLayerId) : null;
+      const resizeScale = tool === "resize" && resizePreviewScale ? resizePreviewScale : null;
+      const resizePreviewW = parseInt(resizeDims.w) || imageDimensions.w;
+      const resizePreviewH = parseInt(resizeDims.h) || imageDimensions.h;
+      const canvasDisplayW = resizeScale ? resizePreviewW * resizeScale : imageDimensions.w * (customZoom / 100);
+      const canvasDisplayH = resizeScale ? resizePreviewH * resizeScale : imageDimensions.h * (customZoom / 100);
 
       return React.createElement("div", {
         style: { display: "flex", flexDirection: "column", height: "100vh", background: BRAND.bg, color: BRAND.text, fontFamily: "'Inter', sans-serif", overflow: "hidden" }
@@ -1509,13 +1786,32 @@
             style: { fontSize: 12, fontWeight: 700, color: BRAND.success, background: `${BRAND.success}18`, border: `1px solid ${BRAND.success}`, borderRadius: 6, padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: 5 }
           }, "🛡 Sanitized — no metadata"),
           React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-            // ── Upgrade to Pro ──
-            !isPro && React.createElement("button", {
-              onClick: () => setProModalOpen(true),
+            // ── Auth / Credits ──
+            user ? React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+              // Credits badge
+              React.createElement("div", {
+                onClick: () => { setAuthModalOpen(true); setActiveTab("credits"); },
+                style: { display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 7, border: `1px solid ${BRAND.border}`, cursor: "pointer", fontSize: 12, color: user.credits > 0 ? BRAND.success : BRAND.danger, background: "transparent" },
+                title: `${user.credits} credits remaining`
+              },
+                React.createElement("span", null, "⚡"),
+                `${user.credits} credits`
+              ),
+              // User menu
+              React.createElement("div", {
+                onClick: () => { setAuthModalOpen(true); setActiveTab(user.byok_unlocked ? "byok" : "credits"); },
+                style: { display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 7, border: `1px solid ${user.is_pro ? "#FFD700" : BRAND.border}`, cursor: "pointer", fontSize: 12, color: user.is_pro ? "#FFD700" : BRAND.textMuted, background: user.is_pro ? "rgba(255,215,0,0.08)" : "transparent" },
+                title: user.email
+              },
+                React.createElement("span", null, user.is_pro ? "💎" : "👤"),
+                user.is_pro ? "Pro" : user.email.split("@")[0]
+              )
+            ) : React.createElement("button", {
+              onClick: () => { setAuthModalOpen(true); setActiveTab("login"); setAuthSent(false); },
               style: { padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "1px solid #FFD700", background: "#FFD700", color: "#000", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }
             },
               React.createElement("span", { style: { fontSize: 14 } }, "💎"),
-              "Upgrade to Pro"
+              "Sign in / Upgrade"
             ),
             // ── Smart Redact ──
             React.createElement("div", { 
@@ -1771,15 +2067,15 @@
                 style: { 
                   display: "block", cursor: getCursor(), boxShadow: "0 8px 40px rgba(0,0,0,0.6)", 
                   borderRadius: 4, touchAction: "none", transformOrigin: "top left",
-                  maxWidth: isFit ? "100%" : "none",
-                  maxHeight: isFit ? "calc(100vh - 120px)" : "none",
-                  width: isFit ? "auto" : `${imageDimensions.w * (customZoom / 100)}px`,
-                  height: isFit ? "auto" : `${imageDimensions.h * (customZoom / 100)}px`,
+                  maxWidth: resizeScale ? "none" : isFit ? "100%" : "none",
+                  maxHeight: resizeScale ? "none" : isFit ? "calc(100vh - 120px)" : "none",
+                  width: resizeScale || !isFit ? `${canvasDisplayW}px` : "auto",
+                  height: resizeScale || !isFit ? `${canvasDisplayH}px` : "auto",
                   objectFit: "contain",
                   imageRendering: "auto"
                 },
                 onPointerDown: handleMouseDown, onPointerMove: handleMouseMove,
-                onPointerUp: handleMouseUp
+                onPointerUp: handleMouseUp, onPointerCancel: handleMouseUp
               }),
               // Live drag selection overlay
               React.createElement("div", {
@@ -1833,6 +2129,40 @@
                   )
                 );
               })(),
+              tool === "resize" && canvasRef.current && imageDimensions.w > 0 && (() => {
+                const canvas = canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                const parentRect = canvas.parentElement.getBoundingClientRect();
+                const left = rect.left - parentRect.left;
+                const top = rect.top - parentRect.top;
+                const w = rect.width;
+                const h = rect.height;
+                const HSIZE = 8;
+                const handlePos = [
+                  { key: "nw", left: left - HSIZE, top: top - HSIZE, cursor: "nw-resize" },
+                  { key: "ne", left: left + w - HSIZE, top: top - HSIZE, cursor: "ne-resize" },
+                  { key: "sw", left: left - HSIZE, top: top + h - HSIZE, cursor: "sw-resize" },
+                  { key: "se", left: left + w - HSIZE, top: top + h - HSIZE, cursor: "se-resize" },
+                ];
+                return React.createElement(React.Fragment, null,
+                  React.createElement("div", {
+                    style: { position: "absolute", left, top, width: w, height: h, border: `2px solid ${toolColors.resize}`, background: `${toolColors.resize}12`, boxShadow: "0 0 0 1px rgba(0,0,0,0.35)", zIndex: 8, pointerEvents: "none" }
+                  }),
+                  ...handlePos.map(hp =>
+                    React.createElement("div", {
+                      key: hp.key,
+                      onPointerDown: handleMouseDown,
+                      onPointerMove: handleMouseMove,
+                      onPointerUp: handleMouseUp,
+                      onPointerCancel: handleMouseUp,
+                      style: { position: "absolute", left: hp.left, top: hp.top, width: HSIZE * 2, height: HSIZE * 2, background: "#fff", border: `2px solid ${toolColors.resize}`, borderRadius: 3, zIndex: 9, cursor: hp.cursor, touchAction: "none", boxShadow: "0 1px 5px rgba(0,0,0,0.5)" }
+                    })
+                  ),
+                  React.createElement("div", {
+                    style: { position: "absolute", left, top: top - 28, background: "rgba(0,0,0,0.78)", color: toolColors.resize, fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4, zIndex: 9, pointerEvents: "none", whiteSpace: "nowrap" }
+                  }, `${parseInt(resizeDims.w) || imageDimensions.w} × ${parseInt(resizeDims.h) || imageDimensions.h}px`)
+                );
+              })(),
               showTextBox && textPos && React.createElement("div", {
                 style: { position: "absolute", left: 24 + textPos.x / (canvasRef.current ? canvasRef.current.width / canvasRef.current.getBoundingClientRect().width : 1), top: 24 + textPos.y / (canvasRef.current ? canvasRef.current.height / canvasRef.current.getBoundingClientRect().height : 1), zIndex: 20 }
               },
@@ -1856,14 +2186,14 @@
           // Right panel
           image && React.createElement("div", { style: { width: 200, background: BRAND.surface, borderLeft: `1px solid ${BRAND.border}`, padding: "16px 14px", display: "flex", flexDirection: "column", gap: 18, flexShrink: 0, overflowY: "auto" } },
             React.createElement("div", null,
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, selectedLayerId ? "Editing Layer" : "Active Tool"),
-              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: selectedLayerId ? BRAND.accent : (toolColors[tool] || BRAND.accent) } }, 
-                 selectedLayerId 
-                  ? layers.find(l => l.id === selectedLayerId)?.type.toUpperCase().charAt(0) + layers.find(l => l.id === selectedLayerId)?.type.slice(1)
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 } }, editingLayer ? "Editing Layer" : "Active Tool"),
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: editingLayer ? BRAND.accent : (toolColors[tool] || BRAND.accent) } },
+                 editingLayer
+                  ? editingLayer.type.toUpperCase().charAt(0) + editingLayer.type.slice(1)
                   : TOOLS.find(t => t.id === tool)?.label
               ),
-              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginTop: 4 } }, selectedLayerId ? "Scale & property adjustments active" : ({
-                select: "Click to inspect", redact: "Drag to cover text/info", blur: "Drag to blur a region",
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginTop: 4 } }, editingLayer ? "Scale & property adjustments active" : ({
+                select: "Click a layer, then drag handles to transform", redact: "Drag to cover text/info", blur: "Drag to blur a region",
                 pixelate: "Drag to pixelate a region", crop: "Drag to select, then Apply", arrow: "Drag to draw arrow",
                 text: "Click to place text", draw: "Drag to draw freehand"
               }[tool] || ""))
@@ -1879,6 +2209,36 @@
 
             // Resize — Apply
             tool === "resize" && React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12, marginTop: 8 } },
+              React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Resize Mode"),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
+                  [
+                    { id: "scale", label: "Image + Layers" },
+                    { id: "canvas", label: "Canvas" },
+                  ].map(mode =>
+                    React.createElement("button", {
+                      key: mode.id,
+                      onClick: () => setResizeMode(mode.id),
+                      style: {
+                        minHeight: 34,
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: `1px solid ${resizeMode === mode.id ? toolColors.resize : BRAND.border}`,
+                        background: resizeMode === mode.id ? `${toolColors.resize}22` : BRAND.bg,
+                        color: resizeMode === mode.id ? toolColors.resize : BRAND.text,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        lineHeight: 1.2,
+                      }
+                    }, mode.label)
+                  )
+                ),
+                React.createElement("div", { style: { fontSize: 10, color: BRAND.textMuted, marginTop: 6, lineHeight: 1.35 } },
+                  resizeMode === "scale" ? "Scales the image and every layer together." : "Changes canvas bounds; layers keep their size and position."
+                )
+              ),
+
               React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 } }, "Resize Dimensions"),
               
               // Width
@@ -1907,14 +2267,13 @@
 
               // Apply Button
               React.createElement("div", { style: { marginTop: 12, display: "flex", flexDirection: "column", gap: 6 } },
-                React.createElement("button", { onClick: applyResize, style: { width: "100%", padding: "10px 0", background: BRAND.accent, border: "none", color: "#fff", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "0.15s" }, onMouseEnter: e => e.currentTarget.style.background = BRAND.accentHover, onMouseLeave: e => e.currentTarget.style.background = BRAND.accent }, "Apply Resize"),
+                React.createElement("button", { onClick: applyResize, style: { width: "100%", padding: "10px 0", background: BRAND.accent, border: "none", color: "#000", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "0.15s" }, onMouseEnter: e => e.currentTarget.style.background = BRAND.accentHover, onMouseLeave: e => e.currentTarget.style.background = BRAND.accent }, resizeMode === "scale" ? "Resize Image + Layers" : "Resize Canvas"),
                 React.createElement("div", { style: { fontSize: 10, color: BRAND.textMuted, textAlign: "center" } }, "Press ", React.createElement("b", { style: { color: BRAND.text } }, "Enter"), " to apply or ", React.createElement("b", { style: { color: BRAND.text } }, "Esc"), " to cancel")
               )
             ),
 
             (() => {
-              const sel = layers.find(l => l.id === selectedLayerId);
-              const type = sel ? sel.type : tool;
+              const type = editingLayer ? editingLayer.type : tool;
               const elements = [];
 
               if (["blur", "pixelate", "draw", "arrow"].includes(type)) {
@@ -2087,38 +2446,135 @@
           React.createElement("span", null, "Ctrl+Z undo  ·  V select  ·  R redact  ·  B blur  ·  P pixelate  ·  C crop  ·  A arrow  ·  T text  ·  D draw")
         ),
 
-        // 💎 Pro Modal
-        proModalOpen && React.createElement("div", { 
+        // 💎 Auth / Credits Modal
+        (authModalOpen || proModalOpen) && React.createElement("div", {
           style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
-          onClick: () => setProModalOpen(false)
+          onClick: () => { setAuthModalOpen(false); setProModalOpen(false); }
         },
           React.createElement("div", { 
-            style: { width: 380, background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
+            style: { width: 420, background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
             onClick: e => e.stopPropagation()
           },
-            React.createElement("div", { style: { fontSize: 24, fontWeight: 800, marginBottom: 8, color: BRAND.accent } }, "Bimp.us Pro"),
-            React.createElement("div", { style: { fontSize: 14, color: BRAND.textMuted, marginBottom: 24, lineHeight: 1.5 } }, "Enter your license key to unlock Smart Redact, Batch Processing, and premium mockups."),
-            
-            React.createElement("input", {
-              type: "text",
-              placeholder: "XXXX-XXXX-XXXX-XXXX",
-              value: inputProKey,
-              onChange: e => setInputProKey(e.target.value.toUpperCase()),
-              style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "12px 16px", color: BRAND.accent, fontSize: 14, fontFamily: "monospace", marginBottom: 16, outline: "none" }
-            }),
 
-            React.createElement("button", {
-              onClick: () => verifyProKey(inputProKey),
-              disabled: verifying || inputProKey.length < 5,
-              style: { ...btnStyle(BRAND, verifying || inputProKey.length < 5, true), width: "100%", height: 44, justifyContent: "center", fontSize: 14, color: "#000" }
-            }, verifying ? "Verifying..." : "Activate Pro"),
+            // ── Tabs ──
+            React.createElement("div", { style: { display: "flex", gap: 4, marginBottom: 24, borderBottom: `1px solid ${BRAND.border}`, paddingBottom: 12 } },
+              [
+                { id: "login", label: user ? "👤 Account" : "🔑 Sign In" },
+                { id: "credits", label: "⚡ Credits" },
+                ...(user?.byok_unlocked ? [{ id: "byok", label: "🔧 BYOK" }] : []),
+              ].map(tab => React.createElement("button", {
+                key: tab.id,
+                onClick: () => setActiveTab(tab.id),
+                style: { padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none", background: activeTab === tab.id ? BRAND.accent + "22" : "transparent", color: activeTab === tab.id ? BRAND.accent : BRAND.textMuted, transition: "all 0.15s" }
+              }, tab.label))
+            ),
 
-            React.createElement("div", { style: { marginTop: 24, textAlign: "center" } },
-              React.createElement("a", { 
-                href: "https://bimpus.lemonsqueezy.com/my-orders", 
-                target: "_blank",
-                style: { color: BRAND.textMuted, fontSize: 12, textDecoration: "underline" } 
-              }, "Lost your key? Restore purchase")
+            // ── Login Tab ──
+            activeTab === "login" && !user && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 22, fontWeight: 800, marginBottom: 8 } }, "Welcome to bimp.us"),
+              React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 24, lineHeight: 1.6 } }, "Sign in with your email to access credits, Pro features, and your BYOK API key."),
+              !authSent ? React.createElement("div", null,
+                React.createElement("input", {
+                  type: "email", placeholder: "you@example.com", value: authEmail,
+                  onChange: e => setAuthEmail(e.target.value),
+                  onKeyDown: e => e.key === "Enter" && sendMagicLink(),
+                  style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "12px 16px", color: BRAND.text, fontSize: 14, marginBottom: 12, outline: "none" }
+                }),
+                React.createElement("button", {
+                  onClick: sendMagicLink,
+                  disabled: authLoading || !authEmail.includes("@"),
+                  style: { ...btnStyle(BRAND, authLoading || !authEmail.includes("@"), true), width: "100%", height: 44, justifyContent: "center", fontSize: 14, color: "#000" }
+                }, authLoading ? "Sending..." : "Send Magic Link →")
+              ) : React.createElement("div", { style: { textAlign: "center", padding: "20px 0" } },
+                React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "📬"),
+                React.createElement("div", { style: { fontSize: 16, fontWeight: 700, marginBottom: 8 } }, "Check your email"),
+                React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted } }, `Magic link sent to ${authEmail}. Click it to sign in.`)
+              )
+            ),
+
+            // ── Account Tab (logged in) ──
+            activeTab === "login" && user && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 16, fontWeight: 700, marginBottom: 4 } }, user.email),
+              React.createElement("div", { style: { fontSize: 12, color: user.is_pro ? "#FFD700" : BRAND.textMuted, marginBottom: 20 } }, user.is_pro ? "💎 Pro Member" : "Free Plan"),
+              React.createElement("div", { style: { background: BRAND.bg, borderRadius: 10, padding: 16, marginBottom: 20 } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 8 } },
+                  React.createElement("span", { style: { fontSize: 12, color: BRAND.textMuted } }, "Credits remaining"),
+                  React.createElement("span", { style: { fontSize: 14, fontWeight: 700, color: BRAND.success } }, `⚡ ${user.credits}`)
+                ),
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 8 } },
+                  React.createElement("span", { style: { fontSize: 12, color: BRAND.textMuted } }, "Credits spent"),
+                  React.createElement("span", { style: { fontSize: 12, color: BRAND.textMuted } }, `${user.credits_spent} / ${500} for BYOK`)
+                ),
+                React.createElement("div", { style: { height: 4, background: BRAND.border, borderRadius: 2, overflow: "hidden" } },
+                  React.createElement("div", { style: { height: "100%", width: `${Math.min(100, (user.credits_spent / 500) * 100)}%`, background: user.byok_unlocked ? BRAND.success : BRAND.accent, borderRadius: 2, transition: "width 0.3s" } })
+                ),
+                !user.byok_unlocked && React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginTop: 6 } }, `Spend $${((500 - user.credits_spent) * 0.1).toFixed(0)} more in credits to unlock BYOK`)
+              ),
+              React.createElement("button", {
+                onClick: logout,
+                style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" }
+              }, "Sign Out")
+            ),
+
+            // ── Credits Tab ──
+            // NOTE: the three href values below are placeholders — replace with the real
+            // Stripe Payment Link URLs once created in the Stripe dashboard (see plan/checklist).
+            activeTab === "credits" && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 800, marginBottom: 8 } }, "⚡ Load Credits"),
+              React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 20, lineHeight: 1.6 } }, "Credits power AI features. 1 credit = $0.10. No subscription — top up when you need it."),
+              React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 } },
+                React.createElement("a", {
+                  href: `https://buy.stripe.com/credits-s${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
+                  target: "_blank",
+                  style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 10, border: `1px solid ${BRAND.border}`, textDecoration: "none", color: BRAND.text, background: BRAND.bg, cursor: "pointer" }
+                },
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontWeight: 700, fontSize: 14 } }, "50 Credits"),
+                    React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted } }, "Good for ~50 AI operations")
+                  ),
+                  React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: BRAND.success } }, "$5")
+                ),
+                React.createElement("a", {
+                  href: `https://buy.stripe.com/credits-l${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
+                  target: "_blank",
+                  style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 10, border: `1px solid ${BRAND.accent}`, textDecoration: "none", color: BRAND.text, background: BRAND.accentLight, cursor: "pointer" }
+                },
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontWeight: 700, fontSize: 14 } }, "120 Credits  🔥 Best Value"),
+                    React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted } }, "Good for ~120 AI operations")
+                  ),
+                  React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: BRAND.success } }, "$10")
+                )
+              ),
+              React.createElement("div", { style: { borderTop: `1px solid ${BRAND.border}`, paddingTop: 16 } },
+                React.createElement("a", {
+                  href: `https://buy.stripe.com/pro${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
+                  target: "_blank",
+                  style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 10, border: "1px solid #FFD700", textDecoration: "none", color: BRAND.text, background: "rgba(255,215,0,0.06)", cursor: "pointer" }
+                },
+                  React.createElement("div", null,
+                    React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: "#FFD700" } }, "💎 bimp.us Pro — One-time"),
+                    React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted } }, "Unlocks BYOK immediately + all Pro features")
+                  ),
+                  React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: "#FFD700" } }, "$25")
+                )
+              )
+            ),
+
+            // ── BYOK Tab ──
+            activeTab === "byok" && user?.byok_unlocked && React.createElement("div", null,
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 800, marginBottom: 8 } }, "🔧 Bring Your Own Key"),
+              React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 20, lineHeight: 1.6 } }, "Enter your OpenAI or Replicate API key. It's stored securely on our server and used only for your AI requests."),
+              React.createElement("input", {
+                type: "password", placeholder: "sk-...", value: byokInput,
+                onChange: e => setByokInput(e.target.value),
+                style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "12px 16px", color: BRAND.text, fontSize: 13, fontFamily: "monospace", marginBottom: 12, outline: "none" }
+              }),
+              React.createElement("button", {
+                onClick: saveByok,
+                disabled: byokSaving || !byokInput.trim(),
+                style: { ...btnStyle(BRAND, byokSaving || !byokInput.trim(), true), width: "100%", height: 44, justifyContent: "center", fontSize: 14, color: "#000" }
+              }, byokSaving ? "Saving..." : "Save API Key")
             )
           )
         )

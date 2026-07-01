@@ -1,0 +1,18 @@
+[Unit]
+Description=bimp.us backend API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/basimp
+Environment=NODE_ENV=production
+# STRIPE_WEBHOOK_SECRET lives in /etc/bimp-api.env, not here (secret material)
+EnvironmentFile=-/etc/bimp-api.env
+ExecStart=/usr/bin/node /var/www/basimp/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
