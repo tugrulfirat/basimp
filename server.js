@@ -8,10 +8,13 @@ const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { OAuth2Client } = require('google-auth-library');
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const PORT = 3002;
 const DB_PATH = path.join(__dirname, 'bimp.db');
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -112,6 +115,13 @@ const getSession = (req) => {
   return db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
 };
 
+const createSessionForUser = (userId) => {
+  const sessionToken = rand();
+  const expires = Math.floor((Date.now() + SESSION_TTL_MS) / 1000);
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(sessionToken, userId, expires);
+  return sessionToken;
+};
+
 // ── Send magic link email via Resend ─────────────────────────────────────────
 const sendMagicLink = (email, token) => {
   const link = `https://bimp.us/api/auth/verify?token=${token}`;
@@ -176,6 +186,54 @@ const sendMagicLink = (email, token) => {
 // ── Routes ────────────────────────────────────────────────────────────────────
 const routes = {
 
+  // GET /api/auth/google/config — expose public Google client config
+  'GET /api/auth/google/config': (req, res) => {
+    json(res, 200, {
+      enabled: !!GOOGLE_CLIENT_ID,
+      client_id: GOOGLE_CLIENT_ID || null,
+    });
+  },
+
+  // POST /api/auth/google — verify Google ID token and create a bimp session
+  'POST /api/auth/google': async (req, res) => {
+    if (!googleClient) return json(res, 503, { error: 'Google sign-in is not configured' });
+
+    const { parsed } = await parseBody(req);
+    const credential = (parsed.credential || '').trim();
+    if (!credential) return json(res, 400, { error: 'Google credential required' });
+
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      const email = (payload?.email || '').toLowerCase().trim();
+      if (!email || payload.email_verified !== true) {
+        return json(res, 401, { error: 'Google account email is not verified' });
+      }
+
+      db.prepare('INSERT OR IGNORE INTO users (email) VALUES (?)').run(email);
+      const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+      const sessionToken = createSessionForUser(user.id);
+
+      json(res, 200, {
+        ok: true,
+        session: sessionToken,
+        user: {
+          email: user.email,
+          is_pro: !!user.is_pro,
+          credits: user.credits,
+          credits_spent: user.credits_spent,
+          byok_unlocked: !!user.byok_unlocked || !!user.is_pro || user.credits_spent >= BYOK_CREDIT_THRESHOLD,
+        },
+      });
+    } catch (err) {
+      console.warn('Google sign-in failed:', err.message);
+      json(res, 401, { error: 'Invalid Google sign-in' });
+    }
+  },
+
   // POST /api/auth/login — send magic link
   'POST /api/auth/login': async (req, res) => {
     const { parsed } = await parseBody(req);
@@ -206,9 +264,7 @@ const routes = {
     db.prepare('DELETE FROM magic_tokens WHERE token = ?').run(token);
 
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(magic.email);
-    const sessionToken = rand();
-    const expires = Math.floor((Date.now() + SESSION_TTL_MS) / 1000);
-    db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(sessionToken, user.id, expires);
+    const sessionToken = createSessionForUser(user.id);
 
     // Redirect to app with token in hash (client picks it up)
     res.writeHead(302, { Location: `https://bimp.us/app.html#session=${sessionToken}` });

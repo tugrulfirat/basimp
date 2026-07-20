@@ -208,6 +208,10 @@
       const [authEmail, setAuthEmail] = useState("");
       const [authSent, setAuthSent] = useState(false);
       const [authLoading, setAuthLoading] = useState(false);
+      const [googleEnabled, setGoogleEnabled] = useState(false);
+      const [googleClientId, setGoogleClientId] = useState("");
+      const [googleLoading, setGoogleLoading] = useState(false);
+      const googleButtonRef = useRef(null);
       const [byokInput, setByokInput] = useState("");
       const [byokSaving, setByokSaving] = useState(false);
       const [activeTab, setActiveTab] = useState("login"); // "login" | "credits" | "byok"
@@ -232,6 +236,84 @@
           }
         } catch {}
       }, []);
+
+      useEffect(() => {
+        let cancelled = false;
+        fetch("/api/auth/google/config")
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (cancelled || !data?.enabled || !data.client_id) return;
+            setGoogleClientId(data.client_id);
+            setGoogleEnabled(true);
+          })
+          .catch(() => {});
+        return () => { cancelled = true; };
+      }, []);
+
+      const handleGoogleCredential = useCallback(async (response) => {
+        if (!response?.credential) {
+          status("Google sign-in did not return a credential");
+          return;
+        }
+        setGoogleLoading(true);
+        try {
+          const r = await fetch("/api/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credential: response.credential })
+          });
+          const data = await r.json();
+          if (!r.ok) {
+            status(data.error || "Google sign-in failed");
+            return;
+          }
+          setToken(data.session);
+          await fetchUser(data.session);
+          setAuthModalOpen(false);
+          setProModalOpen(false);
+          setActiveTab("login");
+          status("Signed in with Google");
+        } catch {
+          status("Google sign-in network error");
+        } finally {
+          setGoogleLoading(false);
+        }
+      }, [fetchUser]);
+
+      useEffect(() => {
+        if (!googleEnabled || !googleClientId || user || activeTab !== "login" || !(authModalOpen || proModalOpen)) return;
+
+        let cancelled = false;
+        let attempts = 0;
+        const renderGoogleButton = () => {
+          if (cancelled) return;
+          const googleIdentity = window.google?.accounts?.id;
+          if (!googleIdentity || !googleButtonRef.current) {
+            if (attempts < 20) {
+              attempts += 1;
+              setTimeout(renderGoogleButton, 200);
+            }
+            return;
+          }
+
+          googleButtonRef.current.innerHTML = "";
+          googleIdentity.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleCredential,
+          });
+          googleIdentity.renderButton(googleButtonRef.current, {
+            theme: "outline",
+            size: "large",
+            type: "standard",
+            shape: "rectangular",
+            text: "continue_with",
+            width: 356,
+          });
+        };
+
+        renderGoogleButton();
+        return () => { cancelled = true; };
+      }, [googleEnabled, googleClientId, user, activeTab, authModalOpen, proModalOpen, handleGoogleCredential]);
 
       // On mount — check for session token in URL hash or localStorage
       useEffect(() => {
@@ -2472,8 +2554,17 @@
             // ── Login Tab ──
             activeTab === "login" && !user && React.createElement("div", null,
               React.createElement("div", { style: { fontSize: 22, fontWeight: 800, marginBottom: 8 } }, "Welcome to bimp.us"),
-              React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 24, lineHeight: 1.6 } }, "Sign in with your email to access credits, Pro features, and your BYOK API key."),
+              React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 24, lineHeight: 1.6 } }, googleEnabled ? "Sign in with Google or email to access credits, Pro features, and your BYOK API key." : "Sign in with your email to access credits, Pro features, and your BYOK API key."),
               !authSent ? React.createElement("div", null,
+                googleEnabled && React.createElement("div", { style: { marginBottom: 16 } },
+                  React.createElement("div", { ref: googleButtonRef, style: { minHeight: 44, display: "flex", justifyContent: "center" } }),
+                  googleLoading && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: BRAND.textMuted, textAlign: "center" } }, "Signing in...")
+                ),
+                googleEnabled && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "0 0 16px" } },
+                  React.createElement("div", { style: { height: 1, background: BRAND.border, flex: 1 } }),
+                  React.createElement("span", { style: { fontSize: 11, color: BRAND.textMuted, textTransform: "uppercase", letterSpacing: 1 } }, "or email"),
+                  React.createElement("div", { style: { height: 1, background: BRAND.border, flex: 1 } })
+                ),
                 React.createElement("input", {
                   type: "email", placeholder: "you@example.com", value: authEmail,
                   onChange: e => setAuthEmail(e.target.value),
@@ -2517,14 +2608,14 @@
             ),
 
             // ── Credits Tab ──
-            // NOTE: the three href values below are placeholders — replace with the real
-            // Stripe Payment Link URLs once created in the Stripe dashboard (see plan/checklist).
+            // NOTE: these are Stripe TEST-mode Payment Links (Bimp.us sandbox). Swap for
+            // live-mode links before accepting real payments.
             activeTab === "credits" && React.createElement("div", null,
               React.createElement("div", { style: { fontSize: 18, fontWeight: 800, marginBottom: 8 } }, "⚡ Load Credits"),
               React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 20, lineHeight: 1.6 } }, "Credits power AI features. 1 credit = $0.10. No subscription — top up when you need it."),
               React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 } },
                 React.createElement("a", {
-                  href: `https://buy.stripe.com/credits-s${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
+                  href: `https://buy.stripe.com/test_00w3cw1zI5by4uol6Ecwg01${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
                   target: "_blank",
                   style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 10, border: `1px solid ${BRAND.border}`, textDecoration: "none", color: BRAND.text, background: BRAND.bg, cursor: "pointer" }
                 },
@@ -2535,7 +2626,7 @@
                   React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: BRAND.success } }, "$5")
                 ),
                 React.createElement("a", {
-                  href: `https://buy.stripe.com/credits-l${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
+                  href: `https://buy.stripe.com/test_fZu8wQ92adI4e4Y7v2cwg02${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
                   target: "_blank",
                   style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 10, border: `1px solid ${BRAND.accent}`, textDecoration: "none", color: BRAND.text, background: BRAND.accentLight, cursor: "pointer" }
                 },
@@ -2548,7 +2639,7 @@
               ),
               React.createElement("div", { style: { borderTop: `1px solid ${BRAND.border}`, paddingTop: 16 } },
                 React.createElement("a", {
-                  href: `https://buy.stripe.com/pro${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
+                  href: `https://buy.stripe.com/test_14A4gAemucE0e4Y02Acwg00${user?.email ? `?prefilled_email=${encodeURIComponent(user.email)}` : ""}`,
                   target: "_blank",
                   style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 10, border: "1px solid #FFD700", textDecoration: "none", color: BRAND.text, background: "rgba(255,215,0,0.06)", cursor: "pointer" }
                 },
