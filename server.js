@@ -10,6 +10,20 @@ const fs = require('fs');
 const path = require('path');
 const { OAuth2Client } = require('google-auth-library');
 
+const loadEnvFile = (envPath) => {
+  try {
+    fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!match || process.env[match[1]] !== undefined) return;
+      process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
+    });
+  } catch {}
+};
+
+loadEnvFile(path.join(__dirname, '.env'));
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const PORT = 3002;
