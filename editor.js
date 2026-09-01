@@ -169,10 +169,10 @@
           id: "t01", name: "Text Behind Object", previewSrc: "/previews/t01_text_behind.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#f97316", "#1a1a2e"], dir: "vertical" },
           layers: [
+            { type: "imageSlot", x: 100, y: 200, w: 1080, h: 520, label: "Subject / object photo", src: "/template-assets/egypt.png" },
             { type: "text", x: 340, y: 400, text: "EGYPT", color: "#f5f0e0", fontSize: 220, fontFamily: "Impact" },
             { type: "text", x: 80, y: 660, text: "Travel Tips", color: "#f5f0e0", fontSize: 48, fontFamily: "Impact" },
             { type: "text", x: 920, y: 350, text: "Jack Doe", color: "#f5f0e0", fontSize: 42, fontFamily: "Impact" },
-            { type: "imageSlot", x: 100, y: 200, w: 1080, h: 520, label: "Subject / object photo", src: "/template-assets/egypt.png" },
           ],
         },
         {
@@ -823,7 +823,7 @@
         // 2. Draw Layers in order
         const allLayers = [...layers, ...(previewLayer ? [previewLayer] : [])];
         allLayers.forEach(layer => {
-          drawLayer(ctx, layer);
+          drawLayer(ctx, layer, exporting);
         });
 
         // 3. Selection Highlight & Handles
@@ -856,7 +856,7 @@
         renderAll();
       }, [renderAll]);
 
-      const drawLayer = (ctx, layer) => {
+      const drawLayer = (ctx, layer, exporting = false) => {
         ctx.save();
         if (layer.type === "redact") {
           ctx.fillStyle = layer.color || "#000";
@@ -908,8 +908,9 @@
           const previewImg = layer.src ? getCachedImage(layer.src) : null;
           const hasPreview = previewImg && previewImg.complete && previewImg.naturalWidth !== 0;
           if (hasPreview) {
-            // Starter photo bundled with the template — cover-fit into the slot, dimmed
-            // so the "click to replace" prompt stays legible over it.
+            // Starter photo bundled with the template — cover-fit into the slot. The dim +
+            // "click to replace" prompt is editing-only chrome, skipped on export so the
+            // downloaded file shows the clean photo, not the in-app placeholder UI.
             ctx.save();
             ctx.beginPath();
             ctx.rect(layer.x, layer.y, layer.w, layer.h);
@@ -917,27 +918,31 @@
             const scale = Math.max(layer.w / previewImg.naturalWidth, layer.h / previewImg.naturalHeight);
             const dw = previewImg.naturalWidth * scale, dh = previewImg.naturalHeight * scale;
             ctx.drawImage(previewImg, layer.x + (layer.w - dw) / 2, layer.y + (layer.h - dh) / 2, dw, dh);
-            ctx.fillStyle = "rgba(0,0,0,0.35)";
-            ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+            if (!exporting) {
+              ctx.fillStyle = "rgba(0,0,0,0.35)";
+              ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+            }
             ctx.restore();
-          } else {
+          } else if (!exporting) {
             ctx.fillStyle = "rgba(255,255,255,0.06)";
             ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
           }
-          ctx.strokeStyle = "rgba(255,255,255,0.4)";
-          ctx.lineWidth = 3;
-          ctx.setLineDash([10, 8]);
-          ctx.strokeRect(layer.x + 2, layer.y + 2, layer.w - 4, layer.h - 4);
-          ctx.setLineDash([]);
-          ctx.fillStyle = "rgba(255,255,255,0.9)";
-          ctx.textAlign = "center";
-          ctx.font = "bold 28px 'Inter', sans-serif";
-          ctx.fillText(hasPreview ? "📷 Click to replace photo" : "📷 Click to add photo", layer.x + layer.w / 2, layer.y + layer.h / 2 + 10);
-          if (layer.label) {
-            ctx.font = "13px 'Inter', sans-serif";
-            ctx.fillText(layer.label, layer.x + layer.w / 2, layer.y + layer.h / 2 + 36);
+          if (!exporting) {
+            ctx.strokeStyle = "rgba(255,255,255,0.4)";
+            ctx.lineWidth = 3;
+            ctx.setLineDash([10, 8]);
+            ctx.strokeRect(layer.x + 2, layer.y + 2, layer.w - 4, layer.h - 4);
+            ctx.setLineDash([]);
+            ctx.fillStyle = "rgba(255,255,255,0.9)";
+            ctx.textAlign = "center";
+            ctx.font = "bold 28px 'Inter', sans-serif";
+            ctx.fillText(hasPreview ? "📷 Click to replace photo" : "📷 Click to add photo", layer.x + layer.w / 2, layer.y + layer.h / 2 + 10);
+            if (layer.label) {
+              ctx.font = "13px 'Inter', sans-serif";
+              ctx.fillText(layer.label, layer.x + layer.w / 2, layer.y + layer.h / 2 + 36);
+            }
+            ctx.textAlign = "left";
           }
-          ctx.textAlign = "left";
         }
         ctx.restore();
       };
@@ -1563,10 +1568,12 @@
         if (e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
         const pos = getPos(e);
 
-        // Image-slot upload works no matter which tool is active — a template's photo
-        // placeholder should always be clickable, not just when Select is chosen.
+        // Empty image-slot upload works no matter which tool is active — a template's
+        // empty photo placeholder should always be clickable. Once a slot already has a
+        // starter photo it behaves like a normal layer (selectable/draggable below) —
+        // replacing it goes through the "Replace Photo" button instead of hijacking clicks.
         const slotHit = findLayerAtPos(pos);
-        if (slotHit && slotHit.type === "imageSlot") {
+        if (slotHit && slotHit.type === "imageSlot" && !slotHit.src) {
           setPendingSlotId(slotHit.id);
           slotFileInputRef.current?.click();
           return;
@@ -2886,6 +2893,15 @@
                       style: { width: 28, height: 28, borderRadius: 6, background: c, border: redactColor === c ? `2px solid ${BRAND.accent}` : c === "#FFFFFF" ? `1px solid ${BRAND.border}` : "1px solid transparent", cursor: "pointer" } 
                     }))
                   )
+                ));
+              }
+
+              if (type === "imageSlot" && editingLayer?.src) {
+                elements.push(React.createElement("div", { key: "slot-replace" },
+                  React.createElement("button", {
+                    onClick: () => { setPendingSlotId(editingLayer.id); slotFileInputRef.current?.click(); },
+                    style: { width: "100%", padding: "10px 12px", borderRadius: 8, background: BRAND.surfaceHover, border: `1px solid ${BRAND.border}`, color: BRAND.text, cursor: "pointer", fontSize: 13, fontWeight: 600 }
+                  }, "📷 Replace Photo")
                 ));
               }
 
