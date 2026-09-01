@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>bimp.us Capture</title>
+  <style>
+    body {
+      margin: 0; width: 260px; background: #0F0F1A; color: #E8E8F0;
+      font-family: -apple-system, 'Inter', sans-serif;
+    }
+    header {
+      display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px;
+    }
+    header img { width: 22px; height: 22px; object-fit: contain; }
+    header span { font-weight: 800; font-size: 15px; }
+    .buttons { padding: 6px 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+    button {
+      display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+      padding: 10px 12px; border-radius: 8px; border: 1px solid #2A2A3E;
+      background: #16162A; color: #E8E8F0; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background 0.12s;
+    }
+    button:hover { background: #1E1E36; }
+    .icon { font-size: 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icons/icon48.png" alt="bimp.us" />
+    <span>bimp.us Capture</span>
+  </header>
+  <div class="buttons">
+    <button id="capture-visible"><span class="icon">🖼</span> Capture Visible Area</button>
+    <button id="capture-selection"><span class="icon">✂️</span> Capture Selection</button>
+    <button id="capture-fullpage"><span class="icon">📜</span> Capture Full Page</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

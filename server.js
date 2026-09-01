@@ -65,7 +65,7 @@ try {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
       is_pro INTEGER DEFAULT 0,
-      credits INTEGER DEFAULT 0,
+      credits INTEGER DEFAULT 50,
       credits_spent INTEGER DEFAULT 0,
       byok_key TEXT DEFAULT NULL,
       byok_unlocked INTEGER DEFAULT 0,

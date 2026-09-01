@@ -136,6 +136,21 @@
       const canvasRef = useRef(null);
       const overlayRef = useRef(null);
       const fileInputRef = useRef(null);
+
+      // ✚ New Canvas State
+      const [newCanvasOpen, setNewCanvasOpen] = useState(false);
+      const [newCanvasW, setNewCanvasW] = useState(1080);
+      const [newCanvasH, setNewCanvasH] = useState(1080);
+      const [newCanvasBg, setNewCanvasBg] = useState("#FFFFFF");
+      const NEW_CANVAS_PRESETS = [
+        { label: "Instagram Post", w: 1080, h: 1080 },
+        { label: "Instagram Story", w: 1080, h: 1920 },
+        { label: "Twitter / X Post", w: 1200, h: 675 },
+        { label: "YouTube Thumbnail", w: 1280, h: 720 },
+        { label: "Full HD", w: 1920, h: 1080 },
+        { label: "4K", w: 3840, h: 2160 },
+      ];
+
       const [image, setImage] = useState(null);
       const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
       const [isFit, setIsFit] = useState(true);
@@ -201,6 +216,10 @@
       const [inputProKey, setInputProKey] = useState("");
       const [verifying, setVerifying] = useState(false);
       const [devModeCount, setDevModeCount] = useState(0); // Secret to enable Pro for devs
+
+      // 🔒 Secure Export State
+      const [secureExportWarning, setSecureExportWarning] = useState(null); // array of weak layers, or null
+      const [secureExportSummary, setSecureExportSummary] = useState(null); // receipt object, or null
 
       // 👤 Auth & Credits State
       const [user, setUser] = useState(null); // { email, is_pro, credits, credits_spent, byok_unlocked, byok_key }
@@ -966,6 +985,31 @@
         reader.readAsDataURL(file);
       };
 
+      // ✚ New Canvas — always fully replaces (File > New semantics), reusing the
+      // same state-setting sequence handleFile uses for "no image loaded yet".
+      const createBlankCanvas = (w, h, bg) => {
+        const off = document.createElement("canvas");
+        off.width = w; off.height = h;
+        const octx = off.getContext("2d");
+        if (bg !== "transparent") { octx.fillStyle = bg; octx.fillRect(0, 0, w, h); }
+        const dataUrl = off.toDataURL("image/png");
+        const img = new Image();
+        img.onload = () => {
+          setBaseImage(img);
+          setSourceImage(img);
+          setImage(dataUrl);
+          setImageDimensions({ w, h });
+          setResizeDims({ w, h });
+          setIsFit(true);
+          setLayers([]);
+          setHistory([]);
+          setShowDropZone(false);
+          setNewCanvasOpen(false);
+          status(`✓ New canvas: ${w}×${h}px`);
+        };
+        img.src = dataUrl;
+      };
+
       const handleFiles = (files) => {
         const fileList = Array.from(files).filter(f => f.type.startsWith("image/"));
         if (fileList.length === 0) return;
@@ -1073,11 +1117,26 @@
         return () => window.removeEventListener("paste", handlePaste);
       }, [loadImage]);
 
+      // Receives captures from the bimp.us Capture Chrome extension (Pro-gated on
+      // the extension side — result.js only offers "Send to Editor" to Pro users).
+      useEffect(() => {
+        const handleExtensionMessage = (e) => {
+          if (e.origin !== window.location.origin) return;
+          if (e.data?.source !== "bimp-extension" || !e.data?.dataUrl) return;
+          loadImage(e.data.dataUrl);
+          status("🧩 Capture received from bimp.us Capture extension");
+        };
+        window.addEventListener("message", handleExtensionMessage);
+        return () => window.removeEventListener("message", handleExtensionMessage);
+      }, [loadImage]);
+
       useEffect(() => {
         const handleKey = (e) => {
           if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
           if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); return; }
           if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") { e.preventDefault(); setTool("select"); status("Select tool active (Ctrl+T)"); return; }
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); setNewCanvasOpen(true); return; }
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") { e.preventDefault(); fileInputRef.current?.click(); return; }
           const t = TOOLS.find(t => t.shortcut === e.key.toUpperCase());
           if (t) setTool(t.id);
         };
@@ -1127,6 +1186,15 @@
         }
         ctx.putImageData(imageData, x, y);
       };
+
+      // Secure Export: flag blur/pixelate layers weak enough to plausibly leak the
+      // covered content. Solid redact fills are never weak — they destroy pixel data outright.
+      const SECURE_MIN_BLUR_RADIUS = 8;
+      const SECURE_MIN_PIXELATE_BLOCK = 10;
+      const getWeakRedactionLayers = (layerList) => layerList.filter(l =>
+        (l.type === "blur" && (l.radius || 0) < SECURE_MIN_BLUR_RADIUS) ||
+        (l.type === "pixelate" && (l.radius || 0) < SECURE_MIN_PIXELATE_BLOCK)
+      );
 
       const drawArrowOnCanvas = (ctx, x1, y1, x2, y2, color = "#FF4757", size = 3, style = "classic") => {
         const dx = x2 - x1, dy = y2 - y1;
@@ -1355,7 +1423,7 @@
             if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) return l;
           } else if (l.type === "text") {
             const ctx = canvasRef.current.getContext("2d");
-            ctx.font = `bold ${l.fontSize}px Inter`;
+            ctx.font = `bold ${l.fontSize}px ${l.fontFamily || VIGNELLI_FONTS[5].family}`;
             const m = ctx.measureText(l.text);
             const th = l.fontSize;
             if (pos.x >= l.x && pos.x <= l.x + m.width && pos.y >= l.y - th && pos.y <= l.y) return l;
@@ -1636,6 +1704,62 @@
         }
       };
 
+      // 🔒 Secure Export — Pro. Catches weak/reversible redactions before export and
+      // produces a plain-language receipt of what was actually baked into the file.
+      const buildSecureExportSummary = () => {
+        const redactCount = layers.filter(l => l.type === "redact").length;
+        const blurCount = layers.filter(l => l.type === "blur").length;
+        const pixelateCount = layers.filter(l => l.type === "pixelate").length;
+        return { redactCount, blurCount, pixelateCount, at: new Date() };
+      };
+
+      const finishSecureExport = () => {
+        setSecureExportSummary(buildSecureExportSummary());
+        exportImage("png", true);
+      };
+
+      const startSecureExport = () => {
+        if (!isPro) { setProModalOpen(true); return; }
+        if (!image) { status("Open an image first"); return; }
+        const weak = getWeakRedactionLayers(layers);
+        if (weak.length > 0) {
+          setSecureExportWarning(weak);
+          return;
+        }
+        finishSecureExport();
+      };
+
+      const autoStrengthenAndExport = () => {
+        saveHistory();
+        setLayers(prev => prev.map(l => {
+          if (l.type === "blur" && (l.radius || 0) < SECURE_MIN_BLUR_RADIUS) return { ...l, radius: SECURE_MIN_BLUR_RADIUS * 2 };
+          if (l.type === "pixelate" && (l.radius || 0) < SECURE_MIN_PIXELATE_BLOCK) return { ...l, radius: SECURE_MIN_PIXELATE_BLOCK * 2 };
+          return l;
+        }));
+        setSecureExportWarning(null);
+        // Layer state update above is async — defer export a tick so renderAll sees the strengthened radii.
+        setTimeout(() => finishSecureExport(), 0);
+      };
+
+      const exportSecureAnyway = () => {
+        setSecureExportWarning(null);
+        finishSecureExport();
+      };
+
+      const copySecureExportSummary = () => {
+        if (!secureExportSummary) return;
+        const { redactCount, blurCount, pixelateCount, at } = secureExportSummary;
+        const text = [
+          `bimp.us Secure Export — ${at.toLocaleString()}`,
+          `Redacted (solid fill): ${redactCount}`,
+          `Blurred: ${blurCount}`,
+          `Pixelated: ${pixelateCount}`,
+          `Metadata: none embedded (browser canvas export never carries EXIF/GPS/author data)`,
+          `Flattened to a single raster image — no editable layers remain in the file.`,
+        ].join("\n");
+        navigator.clipboard.writeText(text).then(() => status("📋 Summary copied")).catch(() => status("Copy failed — select text manually"));
+      };
+
       const copyToClipboard = async () => {
         renderAll(true);
         const canvas = canvasRef.current;
@@ -1854,12 +1978,27 @@
       },
         // Top bar
         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: "52px", background: BRAND.surface, borderBottom: `1px solid ${BRAND.border}`, flexShrink: 0 } },
-          React.createElement("div", { 
-            onClick: enableDevMode,
-            style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" } 
-          },
-            React.createElement("img", { src: "logo.png", alt: "bimp.us", style: { height: 32, width: "auto", objectFit: "contain", mixBlendMode: "screen" } }),
-            React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#000", background: "#FFF", borderRadius: 4, padding: "2px 6px", letterSpacing: 0.5 } }, "BETA")
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14 } },
+            React.createElement("div", {
+              onClick: enableDevMode,
+              style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }
+            },
+              React.createElement("img", { src: "logo.png", alt: "bimp.us", style: { height: 32, width: "auto", objectFit: "contain", mixBlendMode: "screen" } }),
+              React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#000", background: "#FFF", borderRadius: 4, padding: "2px 6px", letterSpacing: 0.5 } }, "BETA")
+            ),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+              React.createElement("button", {
+                onClick: e => { e.stopPropagation(); setNewCanvasOpen(true); },
+                title: "New canvas (Ctrl/Cmd+N)",
+                style: btnStyle(BRAND)
+              }, "✚ New"),
+              React.createElement("button", {
+                onClick: e => { e.stopPropagation(); fileInputRef.current.click(); },
+                title: "Open (Ctrl/Cmd+O)",
+                style: btnStyle(BRAND)
+              }, "📁 Open"),
+              React.createElement("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: handleFileInput })
+            )
           ),
           React.createElement("div", { style: { fontSize: 13, color: statusMsg.includes("✓") || statusMsg.includes("⬇") || statusMsg.includes("🛡") ? BRAND.success : BRAND.textMuted } }, statusMsg),
           showSanitizeBadge && React.createElement("div", {
@@ -1932,6 +2071,17 @@
               !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
             ),
 
+            // ── Secure Export ──
+            React.createElement("div", {
+              onClick: startSecureExport,
+              title: "Checks for weak redactions and gives you a receipt of what's actually in the export",
+              style: { ...btnStyle(BRAND), border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", cursor: "pointer", position: "relative" }
+            },
+              React.createElement("span", { style: { fontSize: 14 } }, "🔒"),
+              React.createElement("span", { style: { fontWeight: 700 } }, "Secure Export"),
+              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
+            ),
+
             // ── Batch Process ──
             fileQueue.length > 1 && React.createElement("div", { 
               onClick: runBatchProcess,
@@ -1989,6 +2139,17 @@
                 ),
                 React.createElement("div", { style: { padding: "8px 14px 10px", fontSize: 11, color: BRAND.textMuted, borderTop: `1px solid ${BRAND.border}` } }, "Creates a blank canvas at exact size")
               )
+            ),
+
+            React.createElement("a", {
+              href: "/thumbnails.html",
+              target: "_blank",
+              rel: "noopener",
+              title: "SocioThumb — AI thumbnail & social post templates (Pro)",
+              style: { padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 700, color: BRAND.text, textDecoration: "none", border: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", gap: 6 }
+            },
+              React.createElement("span", { style: { fontSize: 14 } }, "🖼"),
+              "Thumbnails"
             ),
 
             image && React.createElement(React.Fragment, null,
@@ -2057,8 +2218,6 @@
                 )
               ),
             ),
-            React.createElement("button", { onClick: () => fileInputRef.current.click(), style: btnStyle(BRAND) }, "📁 Open"),
-            React.createElement("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: handleFileInput })
           )
         ),
 
@@ -2139,7 +2298,11 @@
                 ),
                 React.createElement("div", { style: { marginTop: 20, display: "flex", gap: 6, justifyContent: "center" } },
                   ["PNG","JPG","WebP","GIF"].map(f => React.createElement("span", { key: f, style: { fontSize: 11, color: BRAND.textMuted, background: BRAND.surface, padding: "3px 8px", borderRadius: 4, border: `1px solid ${BRAND.border}` } }, f))
-                )
+                ),
+                React.createElement("div", {
+                  onClick: e => { e.stopPropagation(); setNewCanvasOpen(true); },
+                  style: { marginTop: 16, fontSize: 13, color: BRAND.accent, cursor: "pointer" }
+                }, "or ✚ start a blank canvas")
               )
             ),
             // Canvas wrapper — always rendered, hidden until image loaded
@@ -2526,6 +2689,103 @@
         React.createElement("div", { style: { height: 28, background: BRAND.surface, borderTop: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", fontSize: 11, color: BRAND.textMuted, flexShrink: 0 } },
           React.createElement("span", null, "bimp.us — Basic Image Manipulator"),
           React.createElement("span", null, "Ctrl+Z undo  ·  V select  ·  R redact  ·  B blur  ·  P pixelate  ·  C crop  ·  A arrow  ·  T text  ·  D draw")
+        ),
+
+        // ✚ New Canvas Modal
+        newCanvasOpen && React.createElement("div", {
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
+          onClick: () => setNewCanvasOpen(false)
+        },
+          React.createElement("div", {
+            style: { width: 460, background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
+            onClick: e => e.stopPropagation()
+          },
+            React.createElement("div", { style: { fontSize: 20, fontWeight: 800, marginBottom: 16 } }, "✚ New Canvas"),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 } },
+              NEW_CANVAS_PRESETS.map(p => React.createElement("button", {
+                key: p.label,
+                onClick: () => { setNewCanvasW(p.w); setNewCanvasH(p.h); },
+                style: { textAlign: "left", padding: "8px 12px", borderRadius: 8, border: (newCanvasW === p.w && newCanvasH === p.h) ? `1px solid ${BRAND.accent}` : `1px solid ${BRAND.border}`, background: (newCanvasW === p.w && newCanvasH === p.h) ? `${BRAND.accent}18` : "transparent", color: BRAND.text, cursor: "pointer" }
+              },
+                React.createElement("div", { style: { fontSize: 12, fontWeight: 700 } }, p.label),
+                React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted } }, `${p.w} × ${p.h}`)
+              ))
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20 } },
+              React.createElement("div", { style: { flex: 1 } },
+                React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginBottom: 4 } }, "Width"),
+                React.createElement("input", { type: "number", min: 1, max: 8000, value: newCanvasW, onChange: e => setNewCanvasW(Math.max(1, parseInt(e.target.value) || 1)), style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "10px 12px", color: BRAND.text, fontSize: 14, outline: "none" } })
+              ),
+              React.createElement("div", { style: { flex: 1 } },
+                React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginBottom: 4 } }, "Height"),
+                React.createElement("input", { type: "number", min: 1, max: 8000, value: newCanvasH, onChange: e => setNewCanvasH(Math.max(1, parseInt(e.target.value) || 1)), style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "10px 12px", color: BRAND.text, fontSize: 14, outline: "none" } })
+              )
+            ),
+            React.createElement("div", { style: { marginBottom: 24 } },
+              React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, marginBottom: 6 } }, "Background"),
+              React.createElement("div", { style: { display: "flex", gap: 8 } },
+                [
+                  { id: "#FFFFFF", label: "White", swatch: "#FFFFFF" },
+                  { id: "transparent", label: "Transparent", swatch: "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 0 0 / 8px 8px" },
+                  { id: "#000000", label: "Black", swatch: "#000000" },
+                ].map(bg => React.createElement("div", {
+                  key: bg.id,
+                  onClick: () => setNewCanvasBg(bg.id),
+                  title: bg.label,
+                  style: { width: 32, height: 32, borderRadius: 8, background: bg.swatch, border: newCanvasBg === bg.id ? `2px solid ${BRAND.accent}` : `1px solid ${BRAND.border}`, cursor: "pointer" }
+                }))
+              )
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 10 } },
+              React.createElement("button", { onClick: () => createBlankCanvas(newCanvasW, newCanvasH, newCanvasBg), style: { ...btnStyle(BRAND, false, true), flex: 1, justifyContent: "center" } }, "Create"),
+              React.createElement("button", { onClick: () => setNewCanvasOpen(false), style: { ...btnStyle(BRAND), flex: 1, justifyContent: "center" } }, "Cancel")
+            )
+          )
+        ),
+
+        // 🔒 Secure Export — weak redaction warning
+        secureExportWarning && React.createElement("div", {
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
+          onClick: () => setSecureExportWarning(null)
+        },
+          React.createElement("div", {
+            style: { width: 420, background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
+            onClick: e => e.stopPropagation()
+          },
+            React.createElement("div", { style: { fontSize: 20, fontWeight: 800, marginBottom: 8 } }, "⚠️ Weak redaction detected"),
+            React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 24, lineHeight: 1.6 } },
+              `${secureExportWarning.length} ${secureExportWarning.length === 1 ? "area is" : "areas are"} blurred or pixelated below a safe strength — the content underneath may still be recoverable. Strengthen before exporting?`
+            ),
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+              React.createElement("button", { onClick: autoStrengthenAndExport, style: { ...btnStyle(BRAND, false, true), width: "100%", justifyContent: "center" } }, "🔒 Auto-strengthen & Export"),
+              React.createElement("button", { onClick: exportSecureAnyway, style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "Export anyway"),
+              React.createElement("button", { onClick: () => setSecureExportWarning(null), style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center", color: BRAND.textMuted } }, "Cancel")
+            )
+          )
+        ),
+
+        // 🔒 Secure Export — audit summary receipt
+        secureExportSummary && React.createElement("div", {
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
+          onClick: () => setSecureExportSummary(null)
+        },
+          React.createElement("div", {
+            style: { width: 420, background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
+            onClick: e => e.stopPropagation()
+          },
+            React.createElement("div", { style: { fontSize: 20, fontWeight: 800, marginBottom: 8 } }, "🔒 Secure Export — Verified"),
+            React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 20, lineHeight: 1.8 } },
+              React.createElement("div", null, `Redacted (solid fill): ${secureExportSummary.redactCount}`),
+              React.createElement("div", null, `Blurred: ${secureExportSummary.blurCount}`),
+              React.createElement("div", null, `Pixelated: ${secureExportSummary.pixelateCount}`),
+              React.createElement("div", { style: { marginTop: 12, color: BRAND.success } }, "✓ No metadata embedded"),
+              React.createElement("div", { style: { color: BRAND.success } }, "✓ Flattened — no editable layers remain in the file")
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 10 } },
+              React.createElement("button", { onClick: copySecureExportSummary, style: { ...btnStyle(BRAND, false, true), flex: 1, justifyContent: "center" } }, "📋 Copy summary"),
+              React.createElement("button", { onClick: () => setSecureExportSummary(null), style: { ...btnStyle(BRAND), flex: 1, justifyContent: "center" } }, "Close")
+            )
+          )
         ),
 
         // 💎 Auth / Credits Modal

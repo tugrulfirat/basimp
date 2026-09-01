@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>bimp.us Capture</title>
+  <style>
+    body {
+      margin: 0; background: #0F0F1A; color: #E8E8F0;
+      font-family: -apple-system, 'Inter', sans-serif;
+      display: flex; flex-direction: column; height: 100vh; box-sizing: border-box;
+    }
+    header { padding: 14px 16px 10px; font-weight: 800; font-size: 15px; }
+    .preview {
+      flex: 1; margin: 0 16px 12px; border-radius: 10px; border: 1px solid #2A2A3E;
+      background: repeating-conic-gradient(#1A1A2E 0% 25%, #0F0F1A 0% 50%) 0 0 / 16px 16px;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .buttons { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+    .row { display: flex; gap: 8px; }
+    button {
+      flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid #2A2A3E;
+      background: #16162A; color: #E8E8F0; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: #1E1E36; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #send-btn { background: #FFD700; color: #000; border-color: #FFD700; }
+    #send-btn:hover:not(:disabled) { background: #FFE44D; }
+    #status { font-size: 11px; color: #8888AA; padding: 0 16px 12px; line-height: 1.5; min-height: 14px; }
+    #status a { color: #FFD700; }
+  </style>
+</head>
+<body>
+  <header>bimp.us Capture</header>
+  <div class="preview"><img id="preview-img" alt="Capture preview" /></div>
+  <div id="status"></div>
+  <div class="buttons">
+    <div class="row">
+      <button id="download-png">⬇ PNG</button>
+      <button id="download-jpg">⬇ JPEG</button>
+    </div>
+    <button id="send-btn" disabled>🔒 Send to bimp.us Editor</button>
+  </div>
+  <script src="result.js"></script>
+</body>
+</html>
