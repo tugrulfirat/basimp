@@ -1177,6 +1177,7 @@
       const applyThumbnailTemplate = (template) => {
         if (!isPro) { setProModalOpen(true); return; }
         createBlankCanvas(template.w, template.h, template.background, template.layers);
+        setTool("select");
         setTemplatesOpen(false);
         status(`📐 Template applied: ${template.name}`);
       };
@@ -1538,6 +1539,16 @@
         if (!image) return;
         if (e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
         const pos = getPos(e);
+
+        // Image-slot upload works no matter which tool is active — a template's photo
+        // placeholder should always be clickable, not just when Select is chosen.
+        const slotHit = findLayerAtPos(pos);
+        if (slotHit && slotHit.type === "imageSlot") {
+          setPendingSlotId(slotHit.id);
+          slotFileInputRef.current?.click();
+          return;
+        }
+
         setStartPos(pos);
         setIsDrawing(true);
 
@@ -1553,12 +1564,6 @@
             layerTransformActiveRef.current = true;
           } else {
             const hit = findLayerAtPos(pos);
-            if (hit && hit.type === "imageSlot") {
-              setIsDrawing(false);
-              setPendingSlotId(hit.id);
-              slotFileInputRef.current?.click();
-              return;
-            }
             if (hit) {
               saveHistory();
               setSelectedLayerId(hit.id);
