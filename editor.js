@@ -166,7 +166,7 @@
       // (a redact layer already is a solid-color rect); text keeps its real content/color/size/font.
       const THUMBNAIL_TEMPLATES = [
         {
-          id: "t01", name: "Text Behind Object", previewSrc: "previews/t01_text_behind.png",
+          id: "t01", name: "Text Behind Object", previewSrc: "/previews/t01_text_behind.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#f97316", "#1a1a2e"], dir: "vertical" },
           layers: [
             { type: "text", x: 340, y: 400, text: "EGYPT", color: "#f5f0e0", fontSize: 220, fontFamily: "Impact" },
@@ -176,7 +176,7 @@
           ],
         },
         {
-          id: "t02", name: "Stats", previewSrc: "previews/t02_stats.png",
+          id: "t02", name: "Stats", previewSrc: "/previews/t02_stats.png",
           w: THUMB_W, h: THUMB_H, background: "#0a0a0a",
           layers: [
             { type: "imageSlot", x: 640, y: 0, w: 640, h: 720, label: "Your photo" },
@@ -191,7 +191,7 @@
           ],
         },
         {
-          id: "t03", name: "Object Pointing", previewSrc: "previews/t03_object_pointing.png",
+          id: "t03", name: "Object Pointing", previewSrc: "/previews/t03_object_pointing.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#991b1b", "#450a0a"], dir: "diagonal" },
           layers: [
             { type: "imageSlot", x: 680, y: 0, w: 600, h: 720, label: "Subject / problem photo" },
@@ -201,7 +201,7 @@
           ],
         },
         {
-          id: "t04", name: "Interview", previewSrc: "previews/t04_interview.png",
+          id: "t04", name: "Interview", previewSrc: "/previews/t04_interview.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#44403c", "#1c1917"], dir: "vertical" },
           layers: [
             { type: "imageSlot", x: 0, y: 60, w: 500, h: 660, label: "Speaker (left)" },
@@ -214,7 +214,7 @@
           ],
         },
         {
-          id: "t05", name: "Podcast", previewSrc: "previews/t05_podcast.png",
+          id: "t05", name: "Podcast", previewSrc: "/previews/t05_podcast.png",
           w: THUMB_W, h: THUMB_H, background: "#0a0a0a",
           layers: [
             { type: "imageSlot", x: 480, y: 0, w: 800, h: 720, label: "Speaker photo" },
@@ -225,7 +225,7 @@
           ],
         },
         {
-          id: "t06", name: "Before & After", previewSrc: "previews/t06_before_after.png",
+          id: "t06", name: "Before & After", previewSrc: "/previews/t06_before_after.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#374151", "#16a34a"], dir: "horizontal" },
           layers: [
             { type: "imageSlot", x: 0, y: 0, w: 636, h: 720, label: "Before photo" },
@@ -236,7 +236,7 @@
           ],
         },
         {
-          id: "t07", name: "Statement", previewSrc: "previews/t07_statement.png",
+          id: "t07", name: "Statement", previewSrc: "/previews/t07_statement.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#7f1d1d", "#450a0a"], dir: "diagonal" },
           layers: [
             { type: "imageSlot", x: 500, y: 0, w: 780, h: 720, label: "Close-up face photo" },
@@ -246,7 +246,7 @@
           ],
         },
         {
-          id: "t08", name: "Comparison", previewSrc: "previews/t08_comparison.png",
+          id: "t08", name: "Comparison", previewSrc: "/previews/t08_comparison.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#38bdf8", "#0369a1"], dir: "vertical" },
           layers: [
             { type: "imageSlot", x: 320, y: 80, w: 640, h: 640, label: "Your photo (center)" },
@@ -255,7 +255,7 @@
           ],
         },
         {
-          id: "t09", name: "Product Review", previewSrc: "previews/t09_product_review.png",
+          id: "t09", name: "Product Review", previewSrc: "/previews/t09_product_review.png",
           w: THUMB_W, h: THUMB_H, background: "#3b2314",
           layers: [
             { type: "imageSlot", x: 640, y: 0, w: 640, h: 720, label: "Your photo" },
