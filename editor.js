@@ -155,6 +155,8 @@
       // shape commitText() already produces, so these become ordinary editable
       // text layers the instant a template is applied — no separate renderer needed.
       const [templatesOpen, setTemplatesOpen] = useState(false);
+      const [pendingSlotId, setPendingSlotId] = useState(null);
+      const slotFileInputRef = useRef(null);
       const [aiPromptOpen, setAiPromptOpen] = useState(false);
       const [aiPromptText, setAiPromptText] = useState("");
       const [aiPromptLoading, setAiPromptLoading] = useState(false);
@@ -170,12 +172,14 @@
             { type: "text", x: 340, y: 400, text: "EGYPT", color: "#f5f0e0", fontSize: 220, fontFamily: "Impact" },
             { type: "text", x: 80, y: 660, text: "Travel Tips", color: "#f5f0e0", fontSize: 48, fontFamily: "Impact" },
             { type: "text", x: 920, y: 350, text: "Jack Doe", color: "#f5f0e0", fontSize: 42, fontFamily: "Impact" },
+            { type: "imageSlot", x: 100, y: 200, w: 1080, h: 520, label: "Subject / object photo" },
           ],
         },
         {
           id: "t02", name: "Stats", previewSrc: "previews/t02_stats.png",
           w: THUMB_W, h: THUMB_H, background: "#0a0a0a",
           layers: [
+            { type: "imageSlot", x: 640, y: 0, w: 640, h: 720, label: "Your photo" },
             { type: "redact", x: 80, y: 165, w: 500, h: 4, color: "#06b6d4" },
             { type: "redact", x: 80, y: 295, w: 500, h: 4, color: "#06b6d4" },
             { type: "redact", x: 80, y: 425, w: 500, h: 4, color: "#06b6d4" },
@@ -190,6 +194,7 @@
           id: "t03", name: "Object Pointing", previewSrc: "previews/t03_object_pointing.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#991b1b", "#450a0a"], dir: "diagonal" },
           layers: [
+            { type: "imageSlot", x: 680, y: 0, w: 600, h: 720, label: "Subject / problem photo" },
             { type: "text", x: 60, y: 180, text: "FIX", color: "#FFFFFF", fontSize: 160, fontFamily: "Impact" },
             { type: "text", x: 60, y: 360, text: "THIS", color: "#FFFFFF", fontSize: 160, fontFamily: "Impact" },
             { type: "text", x: 500, y: 400, text: "↘", color: "#FFFFFF", fontSize: 120, fontFamily: "Arial" },
@@ -199,6 +204,8 @@
           id: "t04", name: "Interview", previewSrc: "previews/t04_interview.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#44403c", "#1c1917"], dir: "vertical" },
           layers: [
+            { type: "imageSlot", x: 0, y: 60, w: 500, h: 660, label: "Speaker (left)" },
+            { type: "imageSlot", x: 780, y: 60, w: 500, h: 660, label: "Speaker (right)" },
             { type: "redact", x: 390, y: 30, w: 500, h: 50, color: "#eab308" },
             { type: "text", x: 430, y: 65, text: "CREATOR UNFILTERED", color: "#000000", fontSize: 28, fontFamily: "Arial Black" },
             { type: "text", x: 340, y: 250, text: "No One", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
@@ -210,6 +217,7 @@
           id: "t05", name: "Podcast", previewSrc: "previews/t05_podcast.png",
           w: THUMB_W, h: THUMB_H, background: "#0a0a0a",
           layers: [
+            { type: "imageSlot", x: 480, y: 0, w: 800, h: 720, label: "Speaker photo" },
             { type: "text", x: 60, y: 200, text: "YOU DON'T", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
             { type: "text", x: 60, y: 340, text: "WANT IT", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
             { type: "text", x: 60, y: 500, text: "ENOUGH", color: "#FFFFFF", fontSize: 130, fontFamily: "Impact" },
@@ -220,6 +228,8 @@
           id: "t06", name: "Before & After", previewSrc: "previews/t06_before_after.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#374151", "#16a34a"], dir: "horizontal" },
           layers: [
+            { type: "imageSlot", x: 0, y: 0, w: 636, h: 720, label: "Before photo" },
+            { type: "imageSlot", x: 644, y: 0, w: 636, h: 720, label: "After photo" },
             { type: "redact", x: 636, y: 0, w: 8, h: 720, color: "#FFFFFF" },
             { type: "text", x: 110, y: 620, text: "🪫", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial" },
             { type: "text", x: 1070, y: 620, text: "🔋", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial" },
@@ -229,6 +239,7 @@
           id: "t07", name: "Statement", previewSrc: "previews/t07_statement.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#7f1d1d", "#450a0a"], dir: "diagonal" },
           layers: [
+            { type: "imageSlot", x: 500, y: 0, w: 780, h: 720, label: "Close-up face photo" },
             { type: "text", x: 60, y: 200, text: "THE", color: "#FFFFFF", fontSize: 160, fontFamily: "Impact" },
             { type: "text", x: 60, y: 400, text: "1 YEAR", color: "#FFFFFF", fontSize: 180, fontFamily: "Impact" },
             { type: "text", x: 60, y: 610, text: "RULE", color: "#FFFFFF", fontSize: 200, fontFamily: "Impact" },
@@ -238,6 +249,7 @@
           id: "t08", name: "Comparison", previewSrc: "previews/t08_comparison.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#38bdf8", "#0369a1"], dir: "vertical" },
           layers: [
+            { type: "imageSlot", x: 320, y: 80, w: 640, h: 640, label: "Your photo (center)" },
             { type: "text", x: 90, y: 140, text: "$1", color: "#FFFFFF", fontSize: 120, fontFamily: "Impact" },
             { type: "text", x: 990, y: 140, text: "$1B", color: "#FFFFFF", fontSize: 120, fontFamily: "Impact" },
           ],
@@ -246,6 +258,8 @@
           id: "t09", name: "Product Review", previewSrc: "previews/t09_product_review.png",
           w: THUMB_W, h: THUMB_H, background: "#3b2314",
           layers: [
+            { type: "imageSlot", x: 640, y: 0, w: 640, h: 720, label: "Your photo" },
+            { type: "imageSlot", x: 40, y: 350, w: 520, h: 350, label: "Product photo" },
             { type: "text", x: 60, y: 100, text: "THIS PRODUCT", color: "#FFFFFF", fontSize: 80, fontFamily: "Impact" },
             { type: "text", x: 60, y: 200, text: "CHANGED MY SKIN!", color: "#FFFFFF", fontSize: 80, fontFamily: "Impact" },
             { type: "text", x: 60, y: 300, text: "Before & After Results", color: "#d4c4b0", fontSize: 44, fontFamily: "Georgia" },
@@ -884,13 +898,30 @@
           if (img && img.complete && img.naturalWidth !== 0) {
             ctx.drawImage(img, layer.x, layer.y, layer.w, layer.h);
           }
+        } else if (layer.type === "imageSlot") {
+          ctx.fillStyle = "rgba(255,255,255,0.06)";
+          ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+          ctx.strokeStyle = "rgba(255,255,255,0.4)";
+          ctx.lineWidth = 3;
+          ctx.setLineDash([10, 8]);
+          ctx.strokeRect(layer.x + 2, layer.y + 2, layer.w - 4, layer.h - 4);
+          ctx.setLineDash([]);
+          ctx.fillStyle = "rgba(255,255,255,0.7)";
+          ctx.textAlign = "center";
+          ctx.font = "bold 28px 'Inter', sans-serif";
+          ctx.fillText("📷 Click to add photo", layer.x + layer.w / 2, layer.y + layer.h / 2 + 10);
+          if (layer.label) {
+            ctx.font = "13px 'Inter', sans-serif";
+            ctx.fillText(layer.label, layer.x + layer.w / 2, layer.y + layer.h / 2 + 36);
+          }
+          ctx.textAlign = "left";
         }
         ctx.restore();
       };
 
       const getLayerBounds = (layer) => {
         if (!layer) return null;
-        if (["redact", "blur", "pixelate", "image"].includes(layer.type)) {
+        if (["redact", "blur", "pixelate", "image", "imageSlot"].includes(layer.type)) {
           return { x: layer.x, y: layer.y, w: layer.w, h: layer.h };
         }
         if (layer.type === "text") {
@@ -943,7 +974,7 @@
         const { _bounds, ...baseLayer } = layer;
         const sx = to.w / Math.max(1, from.w);
         const sy = to.h / Math.max(1, from.h);
-        if (["redact", "blur", "pixelate", "image"].includes(layer.type)) {
+        if (["redact", "blur", "pixelate", "image", "imageSlot"].includes(layer.type)) {
           return { ...baseLayer, x: to.x, y: to.y, w: to.w, h: to.h, radius: layer.radius ? layer.radius * Math.max(sx, sy) : layer.radius };
         }
         if (layer.type === "text") {
@@ -1060,6 +1091,26 @@
           setTool("select");
           status(`+ Image layer added: ${Math.round(w)}×${Math.round(h)}px`);
         };
+      };
+
+      // Fills an imageSlot placeholder with an uploaded photo, stretched to exactly match
+      // the slot's position/size (same fit behavior as any other resized image layer)
+      // so the template layout doesn't shift.
+      const fillImageSlot = (slotId, file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            setLayers(prev => prev.map(l => l.id === slotId
+              ? { ...l, type: "image", img, src: ev.target.result }
+              : l
+            ));
+            status("📷 Photo added");
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
       };
 
       const handleFile = (file) => {
@@ -1303,9 +1354,10 @@
         const handleKey = (e) => {
           if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
           if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); return; }
-          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") { e.preventDefault(); setTool("select"); status("Select tool active (Ctrl+T)"); return; }
-          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); setNewCanvasOpen(true); return; }
-          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") { e.preventDefault(); fileInputRef.current?.click(); return; }
+          // Plain letters only, no Ctrl/Cmd — Ctrl/Cmd+N and +T are reserved by the browser
+          // itself (new window / new tab) and can't be overridden by a page.
+          if (!e.metaKey && !e.ctrlKey && e.key.toLowerCase() === "n") { e.preventDefault(); setNewCanvasOpen(true); return; }
+          if (!e.metaKey && !e.ctrlKey && e.key.toLowerCase() === "o") { e.preventDefault(); fileInputRef.current?.click(); return; }
           const t = TOOLS.find(t => t.shortcut === e.key.toUpperCase());
           if (t) setTool(t.id);
         };
@@ -1501,6 +1553,12 @@
             layerTransformActiveRef.current = true;
           } else {
             const hit = findLayerAtPos(pos);
+            if (hit && hit.type === "imageSlot") {
+              setIsDrawing(false);
+              setPendingSlotId(hit.id);
+              slotFileInputRef.current?.click();
+              return;
+            }
             if (hit) {
               saveHistory();
               setSelectedLayerId(hit.id);
@@ -1588,7 +1646,7 @@
         // Search from top to bottom
         for (let i = layers.length - 1; i >= 0; i--) {
           const l = layers[i];
-          if (l.type === "redact" || l.type === "blur" || l.type === "pixelate") {
+          if (l.type === "redact" || l.type === "blur" || l.type === "pixelate" || l.type === "imageSlot") {
             if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) return l;
           } else if (l.type === "text") {
             const ctx = canvasRef.current.getContext("2d");
@@ -2158,15 +2216,19 @@
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
               React.createElement("button", {
                 onClick: e => { e.stopPropagation(); setNewCanvasOpen(true); },
-                title: "New canvas (Ctrl/Cmd+N)",
+                title: "New canvas (N)",
                 style: btnStyle(BRAND)
               }, "✚ New"),
               React.createElement("button", {
                 onClick: e => { e.stopPropagation(); fileInputRef.current.click(); },
-                title: "Open (Ctrl/Cmd+O)",
+                title: "Open (O)",
                 style: btnStyle(BRAND)
               }, "📁 Open"),
-              React.createElement("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: handleFileInput })
+              React.createElement("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: handleFileInput }),
+              React.createElement("input", {
+                ref: slotFileInputRef, type: "file", accept: "image/*", style: { display: "none" },
+                onChange: e => { fillImageSlot(pendingSlotId, e.target.files?.[0]); e.target.value = ""; setPendingSlotId(null); }
+              })
             )
           ),
           React.createElement("div", { style: { fontSize: 13, color: statusMsg.includes("✓") || statusMsg.includes("⬇") || statusMsg.includes("🛡") ? BRAND.success : BRAND.textMuted } }, statusMsg),
@@ -2714,6 +2776,15 @@
 
               if (type === "text") {
                 elements.push(React.createElement("div", { key: "font-settings", style: { display: "flex", flexDirection: "column", gap: 12 } },
+                  editingLayer && React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, "Text"),
+                    React.createElement("textarea", {
+                      value: editingLayer.text,
+                      onChange: e => updateSelectedLayer({ text: e.target.value }),
+                      rows: 2,
+                      style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "8px 10px", color: BRAND.text, fontSize: 13, outline: "none", resize: "vertical", fontFamily: "inherit" }
+                    })
+                  ),
                   React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 11, color: BRAND.textMuted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 } }, `Font Size — ${fontSize}px`),
                     React.createElement("input", { 
@@ -2840,7 +2911,7 @@
                   },
                     React.createElement("span", { style: { opacity: 0.5, fontSize: 10, width: 14 } }, layers.length - idx),
                     React.createElement("span", { style: { fontSize: 14 } }, 
-                      l.type === "blur" ? "◈" : l.type === "pixelate" ? "⊞" : l.type === "redact" ? "▬" : l.type === "arrow" ? "↗" : l.type === "text" ? "T" : "✎"
+                      l.type === "blur" ? "◈" : l.type === "pixelate" ? "⊞" : l.type === "redact" ? "▬" : l.type === "arrow" ? "↗" : l.type === "text" ? "T" : l.type === "image" ? "🖼" : l.type === "imageSlot" ? "📷" : "✎"
                     ),
                     React.createElement("div", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: selectedLayerId === l.id ? 700 : 500, color: selectedLayerId === l.id ? BRAND.text : BRAND.textMuted } }, 
                       l.type.charAt(0).toUpperCase() + l.type.slice(1),
@@ -2866,7 +2937,7 @@
         // Bottom bar
         React.createElement("div", { style: { height: 28, background: BRAND.surface, borderTop: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", fontSize: 11, color: BRAND.textMuted, flexShrink: 0 } },
           React.createElement("span", null, "bimp.us — Basic Image Manipulator"),
-          React.createElement("span", null, "Ctrl+Z undo  ·  V select  ·  R redact  ·  B blur  ·  P pixelate  ·  C crop  ·  A arrow  ·  T text  ·  D draw")
+          React.createElement("span", null, "N new  ·  O open  ·  Ctrl+Z undo  ·  V select  ·  R redact  ·  B blur  ·  P pixelate  ·  C crop  ·  A arrow  ·  T text  ·  D draw")
         ),
 
         // ✨ AI Edit Modal (Pro, BYOK)
