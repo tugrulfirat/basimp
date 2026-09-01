@@ -172,7 +172,7 @@
             { type: "text", x: 340, y: 400, text: "EGYPT", color: "#f5f0e0", fontSize: 220, fontFamily: "Impact" },
             { type: "text", x: 80, y: 660, text: "Travel Tips", color: "#f5f0e0", fontSize: 48, fontFamily: "Impact" },
             { type: "text", x: 920, y: 350, text: "Jack Doe", color: "#f5f0e0", fontSize: 42, fontFamily: "Impact" },
-            { type: "imageSlot", x: 100, y: 200, w: 1080, h: 520, label: "Subject / object photo" },
+            { type: "imageSlot", x: 100, y: 200, w: 1080, h: 520, label: "Subject / object photo", src: "/template-assets/egypt.png" },
           ],
         },
         {
@@ -204,8 +204,8 @@
           id: "t04", name: "Interview", previewSrc: "/previews/t04_interview.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#44403c", "#1c1917"], dir: "vertical" },
           layers: [
-            { type: "imageSlot", x: 0, y: 60, w: 500, h: 660, label: "Speaker (left)" },
-            { type: "imageSlot", x: 780, y: 60, w: 500, h: 660, label: "Speaker (right)" },
+            { type: "imageSlot", x: 0, y: 60, w: 500, h: 660, label: "Speaker (left)", src: "/template-assets/yellow-modern1.png" },
+            { type: "imageSlot", x: 780, y: 60, w: 500, h: 660, label: "Speaker (right)", src: "/template-assets/yellow-modern2.png" },
             { type: "redact", x: 390, y: 30, w: 500, h: 50, color: "#eab308" },
             { type: "text", x: 430, y: 65, text: "CREATOR UNFILTERED", color: "#000000", fontSize: 28, fontFamily: "Arial Black" },
             { type: "text", x: 340, y: 250, text: "No One", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
@@ -899,17 +899,34 @@
             ctx.drawImage(img, layer.x, layer.y, layer.w, layer.h);
           }
         } else if (layer.type === "imageSlot") {
-          ctx.fillStyle = "rgba(255,255,255,0.06)";
-          ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+          const previewImg = layer.src ? getCachedImage(layer.src) : null;
+          const hasPreview = previewImg && previewImg.complete && previewImg.naturalWidth !== 0;
+          if (hasPreview) {
+            // Starter photo bundled with the template — cover-fit into the slot, dimmed
+            // so the "click to replace" prompt stays legible over it.
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(layer.x, layer.y, layer.w, layer.h);
+            ctx.clip();
+            const scale = Math.max(layer.w / previewImg.naturalWidth, layer.h / previewImg.naturalHeight);
+            const dw = previewImg.naturalWidth * scale, dh = previewImg.naturalHeight * scale;
+            ctx.drawImage(previewImg, layer.x + (layer.w - dw) / 2, layer.y + (layer.h - dh) / 2, dw, dh);
+            ctx.fillStyle = "rgba(0,0,0,0.35)";
+            ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = "rgba(255,255,255,0.06)";
+            ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+          }
           ctx.strokeStyle = "rgba(255,255,255,0.4)";
           ctx.lineWidth = 3;
           ctx.setLineDash([10, 8]);
           ctx.strokeRect(layer.x + 2, layer.y + 2, layer.w - 4, layer.h - 4);
           ctx.setLineDash([]);
-          ctx.fillStyle = "rgba(255,255,255,0.7)";
+          ctx.fillStyle = "rgba(255,255,255,0.9)";
           ctx.textAlign = "center";
           ctx.font = "bold 28px 'Inter', sans-serif";
-          ctx.fillText("📷 Click to add photo", layer.x + layer.w / 2, layer.y + layer.h / 2 + 10);
+          ctx.fillText(hasPreview ? "📷 Click to replace photo" : "📷 Click to add photo", layer.x + layer.w / 2, layer.y + layer.h / 2 + 10);
           if (layer.label) {
             ctx.font = "13px 'Inter', sans-serif";
             ctx.fillText(layer.label, layer.x + layer.w / 2, layer.y + layer.h / 2 + 36);
