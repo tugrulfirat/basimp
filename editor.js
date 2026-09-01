@@ -169,10 +169,13 @@
           id: "t01", name: "Text Behind Object", previewSrc: "/previews/t01_text_behind.png",
           w: THUMB_W, h: THUMB_H, background: { gradient: ["#f97316", "#1a1a2e"], dir: "vertical" },
           layers: [
-            { type: "imageSlot", x: 100, y: 200, w: 1080, h: 520, label: "Subject / object photo", src: "/template-assets/egypt.png" },
             { type: "text", x: 340, y: 400, text: "EGYPT", color: "#f5f0e0", fontSize: 220, fontFamily: "Impact" },
             { type: "text", x: 80, y: 660, text: "Travel Tips", color: "#f5f0e0", fontSize: 48, fontFamily: "Impact" },
             { type: "text", x: 920, y: 350, text: "Jack Doe", color: "#f5f0e0", fontSize: 42, fontFamily: "Impact" },
+            // Pre-cut (transparent background) so the pyramids sit in front of the text while
+            // the sky stays transparent and lets the text/gradient show through behind them —
+            // the actual "text behind object" effect, not achievable with a plain rectangular photo.
+            { type: "imageSlot", x: 0, y: 0, w: 1280, h: 720, label: "Subject / object photo", src: "/template-assets/egypt-cutout.png", cutout: true },
           ],
         },
         {
@@ -290,6 +293,31 @@
         imageCache.current.set(src, img);
         return img;
       }, []);
+
+      // For a "cutout" imageSlot (transparent-background photo), clicks on the transparent
+      // area must fall through to whatever's underneath instead of selecting the slot — so
+      // hit-testing needs real per-pixel alpha, not just the slot's bounding box.
+      const alphaDataCache = useRef(new Map());
+      const sampleCutoutAlpha = (img, src, localX, localY, slotW, slotH) => {
+        if (!img || !img.complete || img.naturalWidth === 0) return 255;
+        let data = alphaDataCache.current.get(src);
+        if (!data) {
+          const off = document.createElement("canvas");
+          off.width = img.naturalWidth; off.height = img.naturalHeight;
+          const octx = off.getContext("2d");
+          octx.drawImage(img, 0, 0);
+          try {
+            data = octx.getImageData(0, 0, off.width, off.height);
+            alphaDataCache.current.set(src, data);
+          } catch { return 255; }
+        }
+        const scale = Math.max(slotW / img.naturalWidth, slotH / img.naturalHeight);
+        const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+        const ox = (slotW - dw) / 2, oy = (slotH - dh) / 2;
+        const px = Math.round((localX - ox) / scale), py = Math.round((localY - oy) / scale);
+        if (px < 0 || py < 0 || px >= data.width || py >= data.height) return 0;
+        return data.data[(py * data.width + px) * 4 + 3];
+      };
       const [resizeDims, setResizeDims] = useState({ w: 0, h: 0 });
       const [resizeMode, setResizeMode] = useState("scale"); // "scale" | "canvas"
       const [aspectLock, setAspectLock] = useState(true);
@@ -918,16 +946,25 @@
             const scale = Math.max(layer.w / previewImg.naturalWidth, layer.h / previewImg.naturalHeight);
             const dw = previewImg.naturalWidth * scale, dh = previewImg.naturalHeight * scale;
             ctx.drawImage(previewImg, layer.x + (layer.w - dw) / 2, layer.y + (layer.h - dh) / 2, dw, dh);
-            if (!exporting) {
+            // A cutout's dim only tints pixels the photo actually drew (source-atop), so the
+            // transparent sky stays untouched and text stays legible through it while editing.
+            if (!exporting && !layer.cutout) {
               ctx.fillStyle = "rgba(0,0,0,0.35)";
               ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+            } else if (!exporting && layer.cutout) {
+              ctx.globalCompositeOperation = "source-atop";
+              ctx.fillStyle = "rgba(0,0,0,0.15)";
+              ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
+              ctx.globalCompositeOperation = "source-over";
             }
             ctx.restore();
           } else if (!exporting) {
             ctx.fillStyle = "rgba(255,255,255,0.06)";
             ctx.fillRect(layer.x, layer.y, layer.w, layer.h);
           }
-          if (!exporting) {
+          // A full-frame cutout's own dashed border/label would just clutter the whole canvas
+          // edge — skip that chrome for cutouts, the select-tool outline is feedback enough.
+          if (!exporting && !layer.cutout) {
             ctx.strokeStyle = "rgba(255,255,255,0.4)";
             ctx.lineWidth = 3;
             ctx.setLineDash([10, 8]);
@@ -1681,7 +1718,14 @@
         // Search from top to bottom
         for (let i = layers.length - 1; i >= 0; i--) {
           const l = layers[i];
-          if (l.type === "redact" || l.type === "blur" || l.type === "pixelate" || l.type === "imageSlot") {
+          if (l.type === "imageSlot" && l.cutout && l.src) {
+            if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) {
+              const img = getCachedImage(l.src);
+              const alpha = sampleCutoutAlpha(img, l.src, pos.x - l.x, pos.y - l.y, l.w, l.h);
+              if (alpha > 40) return l; // opaque pixel — real hit
+              // transparent pixel — fall through to whatever layer is underneath
+            }
+          } else if (l.type === "redact" || l.type === "blur" || l.type === "pixelate" || l.type === "imageSlot") {
             if (pos.x >= l.x && pos.x <= l.x + l.w && pos.y >= l.y && pos.y <= l.y + l.h) return l;
           } else if (l.type === "text") {
             const ctx = canvasRef.current.getContext("2d");
