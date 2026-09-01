@@ -151,6 +151,87 @@
         { label: "4K", w: 3840, h: 2160 },
       ];
 
+      // 📐 Thumbnail Templates (Pro) — data only. Each `layers` entry is the exact
+      // shape commitText() already produces, so these become ordinary editable
+      // text layers the instant a template is applied — no separate renderer needed.
+      const [templatesOpen, setTemplatesOpen] = useState(false);
+      const [aiPromptOpen, setAiPromptOpen] = useState(false);
+      const [aiPromptText, setAiPromptText] = useState("");
+      const [aiPromptLoading, setAiPromptLoading] = useState(false);
+      const THUMB_W = 1280, THUMB_H = 720;
+      const THUMBNAIL_TEMPLATES = [
+        {
+          id: "t01", name: "Text Behind Object", previewSrc: "previews/t01_text_behind.png",
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#FF7A18", "#AF0000"] },
+          layers: [
+            { type: "text", x: 80, y: 340, text: "YOUR HEADLINE", color: "#FFFFFF", fontSize: 96, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 80, y: 420, text: "Subtitle goes here", color: "#FFFFFF", fontSize: 36, fontFamily: "'Inter', sans-serif" },
+          ],
+        },
+        {
+          id: "t02", name: "Stats", previewSrc: "previews/t02_stats.png",
+          w: THUMB_W, h: THUMB_H, background: "#000000",
+          layers: [
+            { type: "text", x: 80, y: 400, text: "47%", color: "#22C55E", fontSize: 160, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 80, y: 460, text: "growth this quarter", color: "#AAAAAA", fontSize: 34, fontFamily: "'Inter', sans-serif" },
+          ],
+        },
+        {
+          id: "t03", name: "Object Pointing", previewSrc: "previews/t03_object_pointing.png",
+          w: THUMB_W, h: THUMB_H, background: "#0F172A",
+          layers: [
+            { type: "text", x: 80, y: 300, text: "WHY IS", color: "#94A3B8", fontSize: 60, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 80, y: 380, text: "NO ONE DOING THIS?", color: "#FFFFFF", fontSize: 76, fontFamily: "'Jost', sans-serif" },
+          ],
+        },
+        {
+          id: "t04", name: "Interview", previewSrc: "previews/t04_interview.png",
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#1E293B", "#0F172A"] },
+          layers: [
+            { type: "text", x: 80, y: 360, text: "THE INTERVIEW", color: "#FFFFFF", fontSize: 84, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 80, y: 420, text: "with Guest Name", color: "#FFD700", fontSize: 32, fontFamily: "'Inter', sans-serif" },
+          ],
+        },
+        {
+          id: "t05", name: "Podcast", previewSrc: "previews/t05_podcast.png",
+          w: THUMB_W, h: THUMB_H, background: "#111111",
+          layers: [
+            { type: "text", x: 80, y: 320, text: "EPISODE 12", color: "#FFD700", fontSize: 32, fontFamily: "'Inter', sans-serif" },
+            { type: "text", x: 80, y: 400, text: "Podcast Title Here", color: "#FFFFFF", fontSize: 72, fontFamily: "'Jost', sans-serif" },
+          ],
+        },
+        {
+          id: "t06", name: "Before & After", previewSrc: "previews/t06_before_after.png",
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#888888", "#22C55E"] },
+          layers: [
+            { type: "text", x: 100, y: 100, text: "BEFORE", color: "#FFFFFF", fontSize: 44, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 900, y: 100, text: "AFTER", color: "#FFFFFF", fontSize: 44, fontFamily: "'Jost', sans-serif" },
+          ],
+        },
+        {
+          id: "t07", name: "Statement", previewSrc: "previews/t07_statement.png",
+          w: THUMB_W, h: THUMB_H, background: "#111827",
+          layers: [
+            { type: "text", x: 80, y: 380, text: "One bold sentence.", color: "#FFFFFF", fontSize: 80, fontFamily: "'Inter', sans-serif" },
+          ],
+        },
+        {
+          id: "t08", name: "Comparison", previewSrc: "previews/t08_comparison.png",
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#1E3A8A", "#7F1D1D"] },
+          layers: [
+            { type: "text", x: 580, y: 400, text: "VS", color: "#FFFFFF", fontSize: 120, fontFamily: "'Jost', sans-serif" },
+          ],
+        },
+        {
+          id: "t09", name: "Product Review", previewSrc: "previews/t09_product_review.png",
+          w: THUMB_W, h: THUMB_H, background: "#F8FAFC",
+          layers: [
+            { type: "text", x: 80, y: 600, text: "Product Name", color: "#111111", fontSize: 48, fontFamily: "'Inter', sans-serif" },
+            { type: "text", x: 80, y: 100, text: "★★★★★ Reviewed", color: "#F39C12", fontSize: 28, fontFamily: "'Inter', sans-serif" },
+          ],
+        },
+      ];
+
       const [image, setImage] = useState(null);
       const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
       const [isFit, setIsFit] = useState(true);
@@ -987,11 +1068,21 @@
 
       // ✚ New Canvas — always fully replaces (File > New semantics), reusing the
       // same state-setting sequence handleFile uses for "no image loaded yet".
-      const createBlankCanvas = (w, h, bg) => {
+      const createBlankCanvas = (w, h, bg, initialLayers = []) => {
         const off = document.createElement("canvas");
         off.width = w; off.height = h;
         const octx = off.getContext("2d");
-        if (bg !== "transparent") { octx.fillStyle = bg; octx.fillRect(0, 0, w, h); }
+        if (bg !== "transparent") {
+          if (bg && typeof bg === "object" && bg.gradient) {
+            const grad = octx.createLinearGradient(0, 0, w, h);
+            grad.addColorStop(0, bg.gradient[0]);
+            grad.addColorStop(1, bg.gradient[1]);
+            octx.fillStyle = grad;
+          } else {
+            octx.fillStyle = bg;
+          }
+          octx.fillRect(0, 0, w, h);
+        }
         const dataUrl = off.toDataURL("image/png");
         const img = new Image();
         img.onload = () => {
@@ -1001,13 +1092,68 @@
           setImageDimensions({ w, h });
           setResizeDims({ w, h });
           setIsFit(true);
-          setLayers([]);
+          setLayers(initialLayers.map(l => ({ ...l, id: Date.now() + Math.random() })));
           setHistory([]);
           setShowDropZone(false);
-          setNewCanvasOpen(false);
           status(`✓ New canvas: ${w}×${h}px`);
         };
         img.src = dataUrl;
+      };
+
+      const applyThumbnailTemplate = (template) => {
+        if (!isPro) { setProModalOpen(true); return; }
+        createBlankCanvas(template.w, template.h, template.background, template.layers);
+        setTemplatesOpen(false);
+        status(`📐 Template applied: ${template.name}`);
+      };
+
+      // ✨ AI Edit — reuses the user's existing BYOK key (server.js BYOK_CREDIT_THRESHOLD /
+      // the same key surfaced at user.byok_key), not a separate key. First real consumer of BYOK.
+      const applyAIEdit = async () => {
+        if (!aiPromptText.trim()) return;
+        if (!user?.byok_key) {
+          status("Add your OpenAI key in the BYOK tab first");
+          setActiveTab("byok");
+          setAuthModalOpen(true);
+          return;
+        }
+        const textLayers = layers.filter(l => l.type === "text");
+        if (textLayers.length === 0) { status("No text layers to edit on this canvas"); return; }
+        setAiPromptLoading(true);
+        try {
+          const res = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.byok_key}` },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              messages: [
+                { role: "system", content: `You edit text layers for an image thumbnail. Current layers: ${JSON.stringify(textLayers.map((l, i) => ({ index: i, text: l.text, color: l.color })))}. Return ONLY a JSON array of {index, text, color} for layers to change. Keep changes minimal and relevant to the user's request.` },
+                { role: "user", content: aiPromptText },
+              ],
+              response_format: { type: "json_object" },
+            }),
+          });
+          const data = await res.json();
+          const raw = data.choices?.[0]?.message?.content;
+          const parsed = JSON.parse(raw);
+          const updates = Array.isArray(parsed) ? parsed : (parsed.layers || parsed.updates || []);
+          saveHistory();
+          let cursor = -1;
+          setLayers(prev => prev.map(l => {
+            if (l.type !== "text") return l;
+            cursor++;
+            const u = updates.find(x => x.index === cursor);
+            return u ? { ...l, text: u.text ?? l.text, color: u.color ?? l.color } : l;
+          }));
+          setAiPromptOpen(false);
+          setAiPromptText("");
+          status("✨ AI edit applied");
+        } catch (err) {
+          console.error(err);
+          status("AI edit failed — check your OpenAI key and try again");
+        } finally {
+          setAiPromptLoading(false);
+        }
       };
 
       const handleFiles = (files) => {
@@ -2141,15 +2287,24 @@
               )
             ),
 
-            React.createElement("a", {
-              href: "/thumbnails.html",
-              target: "_blank",
-              rel: "noopener",
-              title: "SocioThumb — AI thumbnail & social post templates (Pro)",
-              style: { padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 700, color: BRAND.text, textDecoration: "none", border: `1px solid ${BRAND.border}`, display: "flex", alignItems: "center", gap: 6 }
+            React.createElement("div", {
+              onClick: () => { if (!isPro) { setProModalOpen(true); return; } setTemplatesOpen(true); },
+              title: "Thumbnail & social post templates",
+              style: { padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 700, border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", color: BRAND.text, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, position: "relative" }
             },
-              React.createElement("span", { style: { fontSize: 14 } }, "🖼"),
-              "Thumbnails"
+              React.createElement("span", { style: { fontSize: 14 } }, "📐"),
+              "Templates",
+              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
+            ),
+
+            image && React.createElement("div", {
+              onClick: () => { if (!isPro) { setProModalOpen(true); return; } setAiPromptOpen(true); },
+              title: "Edit this canvas's text with AI (uses your BYOK key)",
+              style: { padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 700, border: `1px solid ${BRAND.accent}`, background: isPro ? "rgba(255,215,0,0.1)" : "transparent", color: BRAND.text, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, position: "relative" }
+            },
+              React.createElement("span", { style: { fontSize: 14 } }, "✨"),
+              "AI Edit",
+              !isPro && React.createElement("div", { style: { position: "absolute", top: -6, right: -6, background: "#FFD700", color: "#000", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontStyle: "normal", fontWeight: 900 } }, "PRO")
             ),
 
             image && React.createElement(React.Fragment, null,
@@ -2691,6 +2846,55 @@
           React.createElement("span", null, "Ctrl+Z undo  ·  V select  ·  R redact  ·  B blur  ·  P pixelate  ·  C crop  ·  A arrow  ·  T text  ·  D draw")
         ),
 
+        // ✨ AI Edit Modal (Pro, BYOK)
+        aiPromptOpen && React.createElement("div", {
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
+          onClick: () => !aiPromptLoading && setAiPromptOpen(false)
+        },
+          React.createElement("div", {
+            style: { width: 420, background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
+            onClick: e => e.stopPropagation()
+          },
+            React.createElement("div", { style: { fontSize: 20, fontWeight: 800, marginBottom: 8 } }, "✨ AI Edit"),
+            React.createElement("div", { style: { fontSize: 13, color: BRAND.textMuted, marginBottom: 16, lineHeight: 1.6 } }, "Describe what to change about the text on this canvas — uses your own OpenAI key (BYOK)."),
+            React.createElement("textarea", {
+              value: aiPromptText, onChange: e => setAiPromptText(e.target.value),
+              placeholder: "e.g. make it darker and more urgent, change the headline to...",
+              rows: 3,
+              style: { width: "100%", background: BRAND.bg, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: "12px 16px", color: BRAND.text, fontSize: 14, marginBottom: 16, outline: "none", resize: "vertical", fontFamily: "inherit" }
+            }),
+            React.createElement("div", { style: { display: "flex", gap: 10 } },
+              React.createElement("button", { onClick: applyAIEdit, disabled: aiPromptLoading, style: { ...btnStyle(BRAND, aiPromptLoading, true), flex: 1, justifyContent: "center" } }, aiPromptLoading ? "Applying…" : "Apply with AI"),
+              React.createElement("button", { onClick: () => setAiPromptOpen(false), disabled: aiPromptLoading, style: { ...btnStyle(BRAND), flex: 1, justifyContent: "center" } }, "Cancel")
+            )
+          )
+        ),
+
+        // 📐 Thumbnail Templates Modal (Pro)
+        templatesOpen && React.createElement("div", {
+          style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
+          onClick: () => setTemplatesOpen(false)
+        },
+          React.createElement("div", {
+            style: { width: 620, maxHeight: "80vh", overflowY: "auto", background: BRAND.surface, border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 32, boxShadow: "0 20px 40px rgba(0,0,0,0.4)" },
+            onClick: e => e.stopPropagation()
+          },
+            React.createElement("div", { style: { fontSize: 20, fontWeight: 800, marginBottom: 4 } }, "📐 Thumbnail & Social Templates"),
+            React.createElement("div", { style: { fontSize: 12, color: BRAND.textMuted, marginBottom: 16 } }, "Pick a starting point — every element is a normal, editable layer once applied."),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 } },
+              THUMBNAIL_TEMPLATES.map(t => React.createElement("div", {
+                key: t.id,
+                onClick: () => applyThumbnailTemplate(t),
+                style: { cursor: "pointer", borderRadius: 10, overflow: "hidden", border: `1px solid ${BRAND.border}` }
+              },
+                React.createElement("img", { src: t.previewSrc, alt: t.name, style: { width: "100%", height: 90, objectFit: "cover", display: "block" } }),
+                React.createElement("div", { style: { padding: "6px 8px", fontSize: 11, fontWeight: 600, color: BRAND.text, background: "#0A0A14" } }, t.name)
+              ))
+            ),
+            React.createElement("button", { onClick: () => setTemplatesOpen(false), style: { ...btnStyle(BRAND), width: "100%", justifyContent: "center" } }, "Cancel")
+          )
+        ),
+
         // ✚ New Canvas Modal
         newCanvasOpen && React.createElement("div", {
           style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center" },
@@ -2737,7 +2941,7 @@
               )
             ),
             React.createElement("div", { style: { display: "flex", gap: 10 } },
-              React.createElement("button", { onClick: () => createBlankCanvas(newCanvasW, newCanvasH, newCanvasBg), style: { ...btnStyle(BRAND, false, true), flex: 1, justifyContent: "center" } }, "Create"),
+              React.createElement("button", { onClick: () => { createBlankCanvas(newCanvasW, newCanvasH, newCanvasBg); setNewCanvasOpen(false); }, style: { ...btnStyle(BRAND, false, true), flex: 1, justifyContent: "center" } }, "Create"),
               React.createElement("button", { onClick: () => setNewCanvasOpen(false), style: { ...btnStyle(BRAND), flex: 1, justifyContent: "center" } }, "Cancel")
             )
           )

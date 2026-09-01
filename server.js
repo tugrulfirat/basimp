@@ -227,7 +227,7 @@ const routes = {
         return json(res, 401, { error: 'Google account email is not verified' });
       }
 
-      db.prepare('INSERT OR IGNORE INTO users (email) VALUES (?)').run(email);
+      db.prepare('INSERT OR IGNORE INTO users (email, credits) VALUES (?, 50)').run(email);
       const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
       const sessionToken = createSessionForUser(user.id);
 
@@ -255,7 +255,7 @@ const routes = {
     if (!email || !email.includes('@')) return json(res, 400, { error: 'Valid email required' });
 
     // Upsert user
-    db.prepare('INSERT OR IGNORE INTO users (email) VALUES (?)').run(email);
+    db.prepare('INSERT OR IGNORE INTO users (email, credits) VALUES (?, 50)').run(email);
 
     // Create magic token
     const token = rand();
@@ -369,7 +369,7 @@ const routes = {
     if (!email) return json(res, 400, { error: 'No email in session' });
 
     // Upsert user
-    db.prepare('INSERT OR IGNORE INTO users (email) VALUES (?)').run(email);
+    db.prepare('INSERT OR IGNORE INTO users (email, credits) VALUES (?, 50)').run(email);
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 
     // Idempotency check
