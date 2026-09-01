@@ -159,75 +159,97 @@
       const [aiPromptText, setAiPromptText] = useState("");
       const [aiPromptLoading, setAiPromptLoading] = useState(false);
       const THUMB_W = 1280, THUMB_H = 720;
+      // Ported directly from the real SocioThumb template data (~/designs/socials/screenshotter/socio-thumb/index.html)
+      // — same colors, copy, fonts and sizes. `rect`/`image` layers become bimp.us `redact` blocks
+      // (a redact layer already is a solid-color rect); text keeps its real content/color/size/font.
       const THUMBNAIL_TEMPLATES = [
         {
           id: "t01", name: "Text Behind Object", previewSrc: "previews/t01_text_behind.png",
-          w: THUMB_W, h: THUMB_H, background: { gradient: ["#FF7A18", "#AF0000"] },
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#f97316", "#1a1a2e"], dir: "vertical" },
           layers: [
-            { type: "text", x: 80, y: 340, text: "YOUR HEADLINE", color: "#FFFFFF", fontSize: 96, fontFamily: "'Jost', sans-serif" },
-            { type: "text", x: 80, y: 420, text: "Subtitle goes here", color: "#FFFFFF", fontSize: 36, fontFamily: "'Inter', sans-serif" },
+            { type: "text", x: 340, y: 400, text: "EGYPT", color: "#f5f0e0", fontSize: 220, fontFamily: "Impact" },
+            { type: "text", x: 80, y: 660, text: "Travel Tips", color: "#f5f0e0", fontSize: 48, fontFamily: "Impact" },
+            { type: "text", x: 920, y: 350, text: "Jack Doe", color: "#f5f0e0", fontSize: 42, fontFamily: "Impact" },
           ],
         },
         {
           id: "t02", name: "Stats", previewSrc: "previews/t02_stats.png",
-          w: THUMB_W, h: THUMB_H, background: "#000000",
+          w: THUMB_W, h: THUMB_H, background: "#0a0a0a",
           layers: [
-            { type: "text", x: 80, y: 400, text: "47%", color: "#22C55E", fontSize: 160, fontFamily: "'Jost', sans-serif" },
-            { type: "text", x: 80, y: 460, text: "growth this quarter", color: "#AAAAAA", fontSize: 34, fontFamily: "'Inter', sans-serif" },
+            { type: "redact", x: 80, y: 165, w: 500, h: 4, color: "#06b6d4" },
+            { type: "redact", x: 80, y: 295, w: 500, h: 4, color: "#06b6d4" },
+            { type: "redact", x: 80, y: 425, w: 500, h: 4, color: "#06b6d4" },
+            { type: "redact", x: 80, y: 555, w: 500, h: 4, color: "#06b6d4" },
+            { type: "text", x: 80, y: 165, text: "✅ HEALTH 100%", color: "#FFFFFF", fontSize: 48, fontFamily: "Arial Black" },
+            { type: "text", x: 80, y: 295, text: "✅ BANK ACCOUNT 100%", color: "#FFFFFF", fontSize: 48, fontFamily: "Arial Black" },
+            { type: "text", x: 80, y: 425, text: "✅ MARRIAGE 100%", color: "#FFFFFF", fontSize: 48, fontFamily: "Arial Black" },
+            { type: "text", x: 80, y: 555, text: "✅ HAPPINESS 100%", color: "#FFFFFF", fontSize: 48, fontFamily: "Arial Black" },
           ],
         },
         {
           id: "t03", name: "Object Pointing", previewSrc: "previews/t03_object_pointing.png",
-          w: THUMB_W, h: THUMB_H, background: "#0F172A",
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#991b1b", "#450a0a"], dir: "diagonal" },
           layers: [
-            { type: "text", x: 80, y: 300, text: "WHY IS", color: "#94A3B8", fontSize: 60, fontFamily: "'Jost', sans-serif" },
-            { type: "text", x: 80, y: 380, text: "NO ONE DOING THIS?", color: "#FFFFFF", fontSize: 76, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 60, y: 180, text: "FIX", color: "#FFFFFF", fontSize: 160, fontFamily: "Impact" },
+            { type: "text", x: 60, y: 360, text: "THIS", color: "#FFFFFF", fontSize: 160, fontFamily: "Impact" },
+            { type: "text", x: 500, y: 400, text: "↘", color: "#FFFFFF", fontSize: 120, fontFamily: "Arial" },
           ],
         },
         {
           id: "t04", name: "Interview", previewSrc: "previews/t04_interview.png",
-          w: THUMB_W, h: THUMB_H, background: { gradient: ["#1E293B", "#0F172A"] },
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#44403c", "#1c1917"], dir: "vertical" },
           layers: [
-            { type: "text", x: 80, y: 360, text: "THE INTERVIEW", color: "#FFFFFF", fontSize: 84, fontFamily: "'Jost', sans-serif" },
-            { type: "text", x: 80, y: 420, text: "with Guest Name", color: "#FFD700", fontSize: 32, fontFamily: "'Inter', sans-serif" },
+            { type: "redact", x: 390, y: 30, w: 500, h: 50, color: "#eab308" },
+            { type: "text", x: 430, y: 65, text: "CREATOR UNFILTERED", color: "#000000", fontSize: 28, fontFamily: "Arial Black" },
+            { type: "text", x: 340, y: 250, text: "No One", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
+            { type: "text", x: 260, y: 380, text: "Talks About", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
+            { type: "text", x: 480, y: 520, text: "This", color: "#FFFFFF", fontSize: 120, fontFamily: "Arial Black" },
           ],
         },
         {
           id: "t05", name: "Podcast", previewSrc: "previews/t05_podcast.png",
-          w: THUMB_W, h: THUMB_H, background: "#111111",
+          w: THUMB_W, h: THUMB_H, background: "#0a0a0a",
           layers: [
-            { type: "text", x: 80, y: 320, text: "EPISODE 12", color: "#FFD700", fontSize: 32, fontFamily: "'Inter', sans-serif" },
-            { type: "text", x: 80, y: 400, text: "Podcast Title Here", color: "#FFFFFF", fontSize: 72, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 60, y: 200, text: "YOU DON'T", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
+            { type: "text", x: 60, y: 340, text: "WANT IT", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial Black" },
+            { type: "text", x: 60, y: 500, text: "ENOUGH", color: "#FFFFFF", fontSize: 130, fontFamily: "Impact" },
+            { type: "text", x: 60, y: 660, text: "MY FIRST MILLION", color: "#FFFFFF", fontSize: 24, fontFamily: "Arial Black" },
           ],
         },
         {
           id: "t06", name: "Before & After", previewSrc: "previews/t06_before_after.png",
-          w: THUMB_W, h: THUMB_H, background: { gradient: ["#888888", "#22C55E"] },
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#374151", "#16a34a"], dir: "horizontal" },
           layers: [
-            { type: "text", x: 100, y: 100, text: "BEFORE", color: "#FFFFFF", fontSize: 44, fontFamily: "'Jost', sans-serif" },
-            { type: "text", x: 900, y: 100, text: "AFTER", color: "#FFFFFF", fontSize: 44, fontFamily: "'Jost', sans-serif" },
+            { type: "redact", x: 636, y: 0, w: 8, h: 720, color: "#FFFFFF" },
+            { type: "text", x: 110, y: 620, text: "🪫", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial" },
+            { type: "text", x: 1070, y: 620, text: "🔋", color: "#FFFFFF", fontSize: 100, fontFamily: "Arial" },
           ],
         },
         {
           id: "t07", name: "Statement", previewSrc: "previews/t07_statement.png",
-          w: THUMB_W, h: THUMB_H, background: "#111827",
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#7f1d1d", "#450a0a"], dir: "diagonal" },
           layers: [
-            { type: "text", x: 80, y: 380, text: "One bold sentence.", color: "#FFFFFF", fontSize: 80, fontFamily: "'Inter', sans-serif" },
+            { type: "text", x: 60, y: 200, text: "THE", color: "#FFFFFF", fontSize: 160, fontFamily: "Impact" },
+            { type: "text", x: 60, y: 400, text: "1 YEAR", color: "#FFFFFF", fontSize: 180, fontFamily: "Impact" },
+            { type: "text", x: 60, y: 610, text: "RULE", color: "#FFFFFF", fontSize: 200, fontFamily: "Impact" },
           ],
         },
         {
           id: "t08", name: "Comparison", previewSrc: "previews/t08_comparison.png",
-          w: THUMB_W, h: THUMB_H, background: { gradient: ["#1E3A8A", "#7F1D1D"] },
+          w: THUMB_W, h: THUMB_H, background: { gradient: ["#38bdf8", "#0369a1"], dir: "vertical" },
           layers: [
-            { type: "text", x: 580, y: 400, text: "VS", color: "#FFFFFF", fontSize: 120, fontFamily: "'Jost', sans-serif" },
+            { type: "text", x: 90, y: 140, text: "$1", color: "#FFFFFF", fontSize: 120, fontFamily: "Impact" },
+            { type: "text", x: 990, y: 140, text: "$1B", color: "#FFFFFF", fontSize: 120, fontFamily: "Impact" },
           ],
         },
         {
           id: "t09", name: "Product Review", previewSrc: "previews/t09_product_review.png",
-          w: THUMB_W, h: THUMB_H, background: "#F8FAFC",
+          w: THUMB_W, h: THUMB_H, background: "#3b2314",
           layers: [
-            { type: "text", x: 80, y: 600, text: "Product Name", color: "#111111", fontSize: 48, fontFamily: "'Inter', sans-serif" },
-            { type: "text", x: 80, y: 100, text: "★★★★★ Reviewed", color: "#F39C12", fontSize: 28, fontFamily: "'Inter', sans-serif" },
+            { type: "text", x: 60, y: 100, text: "THIS PRODUCT", color: "#FFFFFF", fontSize: 80, fontFamily: "Impact" },
+            { type: "text", x: 60, y: 200, text: "CHANGED MY SKIN!", color: "#FFFFFF", fontSize: 80, fontFamily: "Impact" },
+            { type: "text", x: 60, y: 300, text: "Before & After Results", color: "#d4c4b0", fontSize: 44, fontFamily: "Georgia" },
+            { type: "text", x: 60, y: 360, text: "You Need to See!", color: "#d4c4b0", fontSize: 44, fontFamily: "Georgia" },
           ],
         },
       ];
@@ -1074,7 +1096,8 @@
         const octx = off.getContext("2d");
         if (bg !== "transparent") {
           if (bg && typeof bg === "object" && bg.gradient) {
-            const grad = octx.createLinearGradient(0, 0, w, h);
+            const [gx, gy] = bg.dir === "horizontal" ? [w, 0] : bg.dir === "vertical" ? [0, h] : [w, h];
+            const grad = octx.createLinearGradient(0, 0, gx, gy);
             grad.addColorStop(0, bg.gradient[0]);
             grad.addColorStop(1, bg.gradient[1]);
             octx.fillStyle = grad;
