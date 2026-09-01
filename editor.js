@@ -276,12 +276,17 @@
       const [resizePreviewScale, setResizePreviewScale] = useState(null);
       
       const imageCache = useRef(new Map());
+      // renderAll is recreated every render (its deps change with layers/baseImage/etc),
+      // but getCachedImage is memoized once — so img.onload must call it through a ref,
+      // never by closing over renderAll directly, or a slow-loading image's onload fires
+      // the stale first-render renderAll (empty layers, no baseImage) and blanks the canvas.
+      const renderAllRef = useRef(() => {});
       const getCachedImage = useCallback((src) => {
         if (!src) return null;
         if (imageCache.current.has(src)) return imageCache.current.get(src);
         const img = new Image();
         img.src = src;
-        img.onload = () => renderAll();
+        img.onload = () => renderAllRef.current();
         imageCache.current.set(src, img);
         return img;
       }, []);
@@ -847,6 +852,7 @@
 
       // Effect to trigger redraw
       useEffect(() => {
+        renderAllRef.current = renderAll;
         renderAll();
       }, [renderAll]);
 
